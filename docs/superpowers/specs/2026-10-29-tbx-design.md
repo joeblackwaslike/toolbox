@@ -44,12 +44,14 @@ tbx is one repo where adding a tool or changing one is the fast path. Each tool 
 
 9. A top-level `shared/` folder holds everything used by more than one tool: error handling, CLI generation, doc generation and other common conventions. Nothing common gets duplicated per tool.
 10. Tests are organized into subfolders by kind, such as `unit/` and `e2e/`.
+11. Anything common to this kind of program goes in `shared/` for modular reuse, and that is stressed as a rule: a tool never carries its own copy of a helper that another tool has or is likely to need. Everything under `shared/` gets its own documentation section, and there is a slash command, `/tbx:shared-new`, for creating a new shared function or library.
 
 ## Claude's calls (not agreed with Joe, check these)
 
 - Folder layout (below).
 - `tool.toml` as the single source of truth, with every other doc generated from it and checked for drift in CI.
 - bats-core for shell tests, vitest for TypeScript, pytest for Python.
+- CLI libraries: Commander and Zod for TypeScript; Typer, Click and Rich for Python (Typer sits on Click, so manifest-generated Click commands and hand-written Typer subcommands combine, and Rich renders human-mode output); plain bash with a generated parser for shell.
 - Linters: biome and tsc for TypeScript, ruff and mypy for Python, shellcheck and shfmt for shell.
 - A curl installer as the headline install, with Homebrew tap, `npx tbx-cli`, `pnpm dlx` and `uvx --from tbx-cli tbx` as alternates.
 - The batch 1 TypeScript tool is chosen during implementation.
@@ -78,13 +80,15 @@ tools/<name>/
 shared/            everything used by more than one tool, per language:
                    error handling, CLI and argument generation, output and
                    path helpers, and the doc generator
+tbx/               the umbrella CLI (TypeScript): list, new, gen, verify, build, install, doctor
 plugin/            generated agent plugins plus the two workflow skills
 tests/
   unit/            tests for shared/ and the tbx CLI
   e2e/             cross-tool end-to-end tests
   fixtures/        local release index and stubs for external services
 install.sh         curl installer
-docs/              catalog, conventions, contributing, llms.txt
+docs/              catalog, conventions, contributing, llms.txt,
+                   shared/ (generated pages for everything under shared/)
 ```
 
 ## tool.toml
@@ -107,6 +111,9 @@ One file per tool, written by hand. It holds the tool's name and short alias, on
 - Config and state live under XDG directories (`~/.config`, `~/.local/share`, `~/.local/state`), with the standard macOS fallbacks.
 - Secrets come from the environment or 1Password, never from files in the repo.
 - `shared/` provides error handling, argument parsing, output and path helpers, so tools do not repeat boilerplate.
+- Reuse first. Before writing a helper inside a tool, search `shared/`. If another tool has the same need now or plausibly will, the helper goes in `shared/` with a test and documentation. When a tool already holds a helper that a second tool needs, the helper moves to `shared/` in the same change. The create-tool and edit-tool workflows run this search as their first step.
+- Every public function, class or script under `shared/` has a doc comment (TSDoc, a Python docstring, or a shdoc header). The doc generator builds a `shared/` section from those: `docs/shared/index.md` plus one page per module and language. CI fails when a public shared symbol has no doc comment or when the generated pages drift.
+- `tbx shared new <name> --lang ts|py|sh` scaffolds a shared module with a failing test and a doc stub. The `/tbx:shared-new` command and a matching workflow skill drive it: search for an existing helper, then brainstorm the interface, then TDD.
 
 ## The `tbx` command
 
@@ -126,7 +133,7 @@ CI runs the same on a macOS and Linux matrix. The repo-level `tests/e2e/` suite 
 
 ## Agent workflows
 
-The plugin ships two skills. One triggers on "create a new tool" and runs brainstorming, then `tbx new`, then test-driven development, then `tbx verify`. The other triggers on "edit a tool" and runs a shorter loop with a failing test first. Both use Superpowers and Joe's stack preferences. The repo also carries an `AGENTS.md` for Codex, and a `GEMINI.md` that imports it for Gemini, so sessions in this repo follow the same rules.
+The plugin ships three skills. One triggers on "create a new tool" and runs the shared search, then brainstorming, then `tbx new`, then test-driven development, then `tbx verify`. The second triggers on "edit a tool" and runs a shorter loop with a failing test first. The third triggers on "add a shared function" or "add a shared library" and runs `tbx shared new`. Both use Superpowers and Joe's stack preferences. The repo also carries an `AGENTS.md` for Codex, and a `GEMINI.md` that imports it for Gemini, so sessions in this repo follow the same rules.
 
 ## Distribution
 
