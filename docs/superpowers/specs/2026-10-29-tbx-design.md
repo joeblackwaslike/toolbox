@@ -1,7 +1,7 @@
 # tbx design
 
 Date: 2026-10-29
-Status: draft for builder check
+Status: builder check done, awaiting Joe review
 
 ## Why
 
@@ -50,6 +50,14 @@ tbx is one repo where adding a tool or changing one is the fast path. Each tool 
 - Linters: biome and tsc for TypeScript, ruff and mypy for Python, shellcheck and shfmt for shell.
 - A curl installer as the headline install, with Homebrew tap, `npx tbx-cli`, `pnpm dlx` and `uvx --from tbx-cli tbx` as alternates.
 - The batch 1 TypeScript tool is chosen during implementation.
+- Packaging: `core/` is bundled into each tool at build time (esbuild for TypeScript, a single-file copy for shell, a vendored copy for Python), so every tool is a self-contained artifact with no runtime dependency on `tbx` or on a shared package.
+- `tbx` itself is written in TypeScript. Releases attach compiled single-file binaries for macOS and Linux (arm64 and x64), so the curl installer needs no Node or Python. `npx tbx-cli` runs the same code through Node. The PyPI `tbx-cli` is a thin shim that downloads and execs the release binary, so `uvx --from tbx-cli tbx` works. Both run and install `tbx` only; tools come from `tbx install`, which fetches per-tool tarballs from GitHub Releases.
+- State: `tbx install` links each tool into `~/.local/share/tbx/bin` (put on PATH by the installer) and records name and version in `~/.local/state/tbx/installed.json`. `tbx <tool>` resolves through that directory. `update` and `list` compare installed versions with the release index.
+- Interface contract: `tool.toml` describes the interface for docs and completions. `tbx verify` also runs `<tool> --help --json` and fails when the output differs from the manifest, so hand-written parsing cannot drift from the docs.
+- Units: launchd user agents on macOS and `systemctl --user` units on Linux. `platforms` in `tool.toml` gates install and verify, so a macOS-only tool is skipped on Linux. When a unit validator is missing, `verify` warns locally and fails in CI.
+- Agent command names: Claude Code `/tbx:<tool>`; Gemini TOML commands under `commands/tbx/<tool>.toml` (expected to surface as `/tbx:<tool>`, to be confirmed against current docs); Codex prompts named `tbx-<tool>` if Codex has no colon namespace. A command loads the tool's generated reference and runs the tool with the user's arguments.
+- Agent trigger acceptance: automated checks cover plugin manifest validation and the trigger phrases in each skill description. Runs against real agent CLIs are a manual smoke test before a release and stay out of CI.
+- Releases: release-please in manifest mode, one tag per tool (`<tool>-v1.2.3`), with `tbx-cli` versioned on its own. Homebrew formula and npm/PyPI publishing run from the `tbx-cli` release.
 
 ## Layout
 
@@ -117,6 +125,7 @@ The headline is `curl -fsSL <url> | sh`, which installs `tbx` and then any tools
 - The ~40 scripts found in the inventory are mostly shell with hand-rolled `case "${1:-}"` parsing and no tests. Write the test first for each migrated tool.
 - `~/bin` has stale symlinks pointing at old nursery paths. Migration gives each tool one managed link.
 - launchd labels across the existing units are inconsistent (`com.joeblack.*`, `com.joe.*`, `nyc.joeblack.*`, `ai.joeblackwaslike.*`). Generated units use one scheme.
+- `op-sync-api-credentials` (source in `helpers/projects/op-credential-sync`) is a 73-line bash script. A daily 9 AM launchd job (`com.joeblack.op-sync-api-credentials`, `RunAtLoad` off, log at `~/Library/Logs/op-sync-api-credentials.log`) shows an `osascript` dialog, then copies new API credentials from the Personal vault to the Development vault in 1Password. It is macOS-only (`platforms = ["macos"]`) and its prompt is hard-wired, so the migration adds `-y` for non-interactive runs and a test that stubs `op` and `osascript`. Keep the behavior; the label moves to the generated scheme, which means reinstalling the unit.
 - `~/bin/glm-claude` holds a plaintext API token. Do not copy it anywhere. The token needs rotating by Joe.
 
 ## Unverified
