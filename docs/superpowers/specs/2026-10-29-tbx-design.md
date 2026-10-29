@@ -51,7 +51,7 @@ tbx is one repo where adding a tool or changing one is the fast path. Each tool 
 - Folder layout (below).
 - `tool.toml` as the single source of truth, with every other doc generated from it and checked for drift in CI.
 - bats-core for shell tests, vitest for TypeScript, pytest for Python.
-- CLI libraries: Commander and Zod for TypeScript; Typer, Click and Rich for Python (Typer sits on Click, so manifest-generated Click commands and hand-written Typer subcommands combine, and Rich renders human-mode output); plain bash with a generated parser for shell.
+- CLI libraries: Commander and Zod for TypeScript; Typer, Click, Rich and Tenacity for Python, where Tenacity backs the shared retry helper (Typer sits on Click, so manifest-generated Click commands and hand-written Typer subcommands combine, and Rich renders human-mode output); plain bash with a generated parser for shell.
 - Linters: biome and tsc for TypeScript, ruff and mypy for Python, shellcheck and shfmt for shell.
 - A curl installer as the headline install, with Homebrew tap, `npx tbx-cli`, `pnpm dlx` and `uvx --from tbx-cli tbx` as alternates.
 - The batch 1 TypeScript tool is chosen during implementation.

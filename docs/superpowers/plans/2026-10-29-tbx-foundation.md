@@ -6,7 +6,7 @@
 
 **Architecture:** `tool.toml` is parsed into one typed manifest. `shared/` turns it into a CLI parser for each language (TypeScript, Python, shell), plus README, completions and unit files. `tbx` builds each tool into a self-contained artifact and installs it from a local release-index fixture. `tbx verify` gates a tool on lint, unit tests, drift, contract tests and an isolated e2e run.
 
-**Tech Stack:** TypeScript (pnpm workspace, Commander, Zod, smol-toml, esbuild, Vitest, Biome, ESLint strict), Python (uv, Typer, Click, Rich, pytest, ruff, mypy), shell (bats-core, shellcheck, shfmt), Bun for compiling `tbx`, GitHub Actions.
+**Tech Stack:** TypeScript (pnpm workspace, Commander, Zod, smol-toml, esbuild, Vitest, Biome, ESLint strict), Python (uv, Typer, Click, Rich, Tenacity, pytest, ruff, mypy), shell (bats-core, shellcheck, shfmt), Bun for compiling `tbx`, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-10-29-tbx-design.md`
 
@@ -80,15 +80,16 @@ justfile  biome.json  eslint.config.mjs  pnpm-workspace.yaml  .github/workflows/
 
 ### Task 3: Errors, exit codes and output
 
-**Files:** Create `shared/ts/src/errors.ts`, `shared/ts/src/output.ts`, `shared/py/tbx_shared/errors.py`, `shared/py/tbx_shared/output.py`, `shared/sh/lib.sh`; Tests in `tests/unit/` for each language.
+**Files:** Create `shared/ts/src/errors.ts`, `shared/ts/src/output.ts`, `shared/py/tbx_shared/errors.py`, `shared/py/tbx_shared/output.py`, `shared/py/tbx_shared/retry.py`, `shared/sh/lib.sh`; Tests in `tests/unit/` for each language.
 
 **Interfaces:**
 
 - Produces (ts): `ExitCode = {ok: 0, failure: 1, usage: 2, unavailable: 69, config: 78}`; `class ToolError extends Error { constructor(message: string, readonly code: number = ExitCode.failure) }`; `createOutput(opts: {json: boolean}): Output` with `Output.result(data: unknown): void` (stdout; JSON when `json`), `Output.info(msg: string): void` and `Output.error(msg: string): void` (both stderr).
 - Produces (py): `ExitCode`, `ToolError(message, code=1)`, `Output(json: bool)` with the same three methods. Human-mode output renders through a Rich `Console` (stdout for `result`, `Console(stderr=True)` for `info` and `error`); with `json` true, `result` prints plain JSON and no Rich markup reaches either stream.
+- Produces (py): `retry_policy(attempts: int = 3, base: float = 0.5, max_wait: float = 10.0, retry_on: tuple[type[BaseException], ...] = (OSError,)) -> tenacity.Retrying` (stop after `attempts`, exponential wait capped at `max_wait`, `reraise=True`) and `with_retry(fn: Callable[P, R], policy: Retrying | None = None) -> Callable[P, R]`. Tools use these instead of hand-rolled loops.
 - Produces (sh): `tbx_die <code> <message>` (message to stderr, exit with code), `tbx_result <text|json>`, with `TBX_JSON=1` switching to JSON.
 
-- [ ] **Step 1: Write failing tests** in each language: `result writes only JSON to stdout when json is true`, `info and error never write to stdout`, `ToolError defaults to exit code 1`, and for sh `tbx_die exits with the given code and writes to stderr` (bats).
+- [ ] **Step 1: Write failing tests** in each language: `result writes only JSON to stdout when json is true`, `info and error never write to stdout`, `ToolError defaults to exit code 1`, `retry_policy retries a failing call then succeeds`, `retry_policy reraises the last error after the attempt limit`, `retry_policy does not retry an exception outside retry_on`, and for sh `tbx_die exits with the given code and writes to stderr` (bats).
 - [ ] **Step 2: Run** `just test`. Expected: FAIL in the three new suites.
 - [ ] **Step 3: Implement** the three modules to match the signatures.
 - [ ] **Step 4: Run** `just test`. Expected: PASS.
