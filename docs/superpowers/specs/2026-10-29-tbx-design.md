@@ -42,6 +42,9 @@ tbx is one repo where adding a tool or changing one is the fast path. Each tool 
 7. Some tools carry a launchd unit and a systemd unit.
 8. Batch 1 to migrate: `transcribe` (shell), `op-sync-api-credentials` (shell, launchd), `cpu` (Python), `colorize` (Python), plus one new small TypeScript tool. Dropped: `orb-autostop` (to be archived), `luxafor` (stays in its own repo), the `clother` family (third-party installer).
 
+9. A top-level `shared/` folder holds everything used by more than one tool: error handling, CLI generation, doc generation and other common conventions. Nothing common gets duplicated per tool.
+10. Tests are organized into subfolders by kind, such as `unit/` and `e2e/`.
+
 ## Claude's calls (not agreed with Joe, check these)
 
 - Folder layout (below).
@@ -50,27 +53,36 @@ tbx is one repo where adding a tool or changing one is the fast path. Each tool 
 - Linters: biome and tsc for TypeScript, ruff and mypy for Python, shellcheck and shfmt for shell.
 - A curl installer as the headline install, with Homebrew tap, `npx tbx-cli`, `pnpm dlx` and `uvx --from tbx-cli tbx` as alternates.
 - The batch 1 TypeScript tool is chosen during implementation.
-- Packaging: `core/` is bundled into each tool at build time (esbuild for TypeScript, a single-file copy for shell, a vendored copy for Python), so every tool is a self-contained artifact with no runtime dependency on `tbx` or on a shared package.
-- `tbx` itself is written in TypeScript. Releases attach compiled single-file binaries for macOS and Linux (arm64 and x64), so the curl installer needs no Node or Python. `npx tbx-cli` runs the same code through Node. The PyPI `tbx-cli` is a thin shim that downloads and execs the release binary, so `uvx --from tbx-cli tbx` works. Both run and install `tbx` only; tools come from `tbx install`, which fetches per-tool tarballs from GitHub Releases.
-- State: `tbx install` links each tool into `~/.local/share/tbx/bin` (put on PATH by the installer) and records name and version in `~/.local/state/tbx/installed.json`. `tbx <tool>` resolves through that directory. `update` and `list` compare installed versions with the release index.
-- Interface contract: `tool.toml` describes the interface for docs and completions. `tbx verify` also runs `<tool> --help --json` and fails when the output differs from the manifest, so hand-written parsing cannot drift from the docs.
-- Units: launchd user agents on macOS and `systemctl --user` units on Linux. `platforms` in `tool.toml` gates install and verify, so a macOS-only tool is skipped on Linux. When a unit validator is missing, `verify` warns locally and fails in CI.
-- Agent command names: Claude Code `/tbx:<tool>`; Gemini TOML commands under `commands/tbx/<tool>.toml` (expected to surface as `/tbx:<tool>`, to be confirmed against current docs); Codex prompts named `tbx-<tool>` if Codex has no colon namespace. A command loads the tool's generated reference and runs the tool with the user's arguments.
+- Packaging: `shared/` is bundled into each tool at build time (esbuild for TypeScript, a single-file copy for shell, a vendored copy for Python), so every tool is a self-contained artifact with no runtime dependency on `tbx` or on a shared package.
+- `tbx` itself is written in TypeScript and compiled with a pinned Bun to single-file binaries. Supported targets are macOS arm64 and x64 and Linux glibc arm64 and x64. Linux musl is not supported in v1, and the installer says so and exits. Asset names encode OS, architecture and libc, and CI smoke-tests every promised target on a runner of that target. Tools come from `tbx install`, which fetches per-tool tarballs from GitHub Releases.
+- The curl installer downloads the matching binary and needs no Node or Python. `npx tbx-cli` and `uvx --from tbx-cli tbx` run `tbx` once from a cache. They do not put `tbx` on PATH, so the docs show `npx tbx-cli install` and `uvx --from tbx-cli tbx install` as the persistent bootstrap. The PyPI `tbx-cli` is a thin shim pinned to the exact release binary of the same version, verified by checksum.
+- State: `tbx install` writes each tool into an immutable version directory under `~/.local/share/tbx/tools/<name>/<version>/` and links it into `~/.local/share/tbx/bin` (put on PATH by the installer). `~/.local/state/tbx/installed.json` records name and version. `tbx <tool>` resolves through that directory. `update` and `list` compare installed versions with the release index.
+- Install safety: downloads are checksum-verified and extracted to a staging directory. A lock file serializes `install`, `update` and `uninstall`. Link replacement and state writes are atomic, and the previous version stays until the new one is active. An interrupted run is recovered by `tbx doctor`.
+- Interface contract: `tool.toml` describes the interface for docs and completions. `tbx verify` runs `<tool> --help --json` and fails when the output differs from the manifest. It also runs generated behavioral contract tests for every documented flag and alias, required arguments, invalid input, exit codes and non-interactive behavior, so a parser cannot match the metadata while rejecting a documented flag.
+- Units: launchd user agents on macOS and `systemctl --user` units on Linux. `platforms` in `tool.toml` gates install and verify, so a macOS-only tool is skipped on Linux. Checked-in unit files are portable templates. Install renders absolute executable paths into them (launchd does not inherit a shell PATH). Overrides are validated `tool.toml` input, never hand edits to generated files. Install unloads an old label before it loads the new one. Validation runs per OS: `plutil -lint` plus a key and type check on macOS, `systemd-analyze verify` on Linux, with validator versions pinned. A missing validator warns locally and fails in CI.
+- Agent command names: Claude Code `/tbx:<tool>`. Gemini TOML commands under `commands/tbx/<tool>.toml`, which surface as `/tbx:<tool>` (directory-to-colon mapping confirmed in the Gemini docs). Codex: skills first; legacy custom prompts, if generated, are invoked as `/prompts:tbx-<tool>`. OpenClaw: names sanitized to letters, digits and underscores, 32 characters at most (`tbx_<tool>`), with a collision rule that truncates and appends a short hash, plus a generic skill invocation as fallback. A command loads the tool's generated reference and runs the tool with the user's arguments.
 - Agent trigger acceptance: automated checks cover plugin manifest validation and the trigger phrases in each skill description. Runs against real agent CLIs are a manual smoke test before a release and stay out of CI.
-- Releases: release-please in manifest mode, one tag per tool (`<tool>-v1.2.3`), with `tbx-cli` versioned on its own. Homebrew formula and npm/PyPI publishing run from the `tbx-cli` release.
+- Releases: release-please in manifest mode, one tag per tool (`<tool>-v1.2.3`), with `tbx-cli` versioned on its own. A change under `shared/` computes the affected tools and forces a version bump and release for each, since their bundled copy changed. A generator change that alters shipped output does the same. Released versions are never rebuilt. Homebrew formula and npm/PyPI publishing run from the `tbx-cli` release.
+- Gemini reads `GEMINI.md` by default, so the repo ships a `GEMINI.md` that imports `AGENTS.md`. Codex reads `AGENTS.md` directly.
 
 ## Layout
 
 ```text
 tools/<name>/
   tool.toml        name, alias, summary, args, platforms, units
-  src/ tests/      language specific
-  units/           optional launchd plist and systemd unit, generated, overridable
+  src/             language specific
+  tests/unit/      the tool's unit tests
+  tests/e2e/       the tool's end-to-end tests
+  units/           optional launchd and systemd unit templates
   docs/guide.md    optional long-form guide
-core/              shared conventions per language
-gen/               generator
+shared/            everything used by more than one tool, per language:
+                   error handling, CLI and argument generation, output and
+                   path helpers, and the doc generator
 plugin/            generated agent plugins plus the two workflow skills
-e2e/               cross-tool end-to-end tests
+tests/
+  unit/            tests for shared/ and the tbx CLI
+  e2e/             cross-tool end-to-end tests
+  fixtures/        local release index and stubs for external services
 install.sh         curl installer
 docs/              catalog, conventions, contributing, llms.txt
 ```
@@ -94,7 +106,7 @@ One file per tool, written by hand. It holds the tool's name and short alias, on
 - Exit codes are stable and documented per tool.
 - Config and state live under XDG directories (`~/.config`, `~/.local/share`, `~/.local/state`), with the standard macOS fallbacks.
 - Secrets come from the environment or 1Password, never from files in the repo.
-- A shared `core/` per language provides argument parsing, output and path helpers, so tools do not repeat boilerplate.
+- `shared/` provides error handling, argument parsing, output and path helpers, so tools do not repeat boilerplate.
 
 ## The `tbx` command
 
@@ -105,20 +117,20 @@ One file per tool, written by hand. It holds the tool's name and short alias, on
 `tbx verify <tool>` runs:
 
 1. Lint for the tool's language.
-2. Unit tests.
-3. The generator drift check.
-4. An end-to-end run that installs the tool into a temporary prefix and exercises interactive mode (in a pty) and non-interactive mode.
-5. For tools with units, plist validation (`plutil -lint`) and systemd validation (`systemd-analyze verify`) where available.
+2. The tool's unit tests (`tests/unit/`).
+3. The generator drift check and the interface contract tests.
+4. A build of the candidate artifact from the current checkout, installed through a local release-index fixture (`tests/fixtures/`), never a previously published release. The run isolates HOME, the XDG directories and PATH, stubs external services such as `op` and `osascript`, and puts a deadline on every pty session. It exercises interactive mode (in a pty) and non-interactive mode (`tests/e2e/`).
+5. For tools with units, the per-OS unit validation described above.
 
-CI runs the same on a macOS and Linux matrix. The repo-level `e2e/` suite has at least two tests that cross tool boundaries, such as installing everything and running `tbx list` and `tbx doctor`.
+CI runs the same on a macOS and Linux matrix. The repo-level `tests/e2e/` suite has at least two tests that cross tool boundaries, such as installing everything and running `tbx list` and `tbx doctor`. Any change under `shared/` or to `tbx` itself runs that suite, plus `verify` for every affected tool.
 
 ## Agent workflows
 
-The plugin ships two skills. One triggers on "create a new tool" and runs brainstorming, then `tbx new`, then test-driven development, then `tbx verify`. The other triggers on "edit a tool" and runs a shorter loop with a failing test first. Both use Superpowers and Joe's stack preferences. The repo also carries an `AGENTS.md` so Codex and Gemini sessions in this repo follow the same rules.
+The plugin ships two skills. One triggers on "create a new tool" and runs brainstorming, then `tbx new`, then test-driven development, then `tbx verify`. The other triggers on "edit a tool" and runs a shorter loop with a failing test first. Both use Superpowers and Joe's stack preferences. The repo also carries an `AGENTS.md` for Codex, and a `GEMINI.md` that imports it for Gemini, so sessions in this repo follow the same rules.
 
 ## Distribution
 
-The headline is `curl -fsSL <url> | sh`, which installs `tbx` and then any tools named. Alternates are a Homebrew tap, `npx tbx-cli`, `pnpm dlx tbx-cli`, and `uvx --from tbx-cli tbx`. Releases attach `.deb` and `.rpm` files. Versions are per tool with semver, and releases are automated. The repo README opens with the install line, a short demo and the tool catalog.
+The headline is `curl -fsSL <url> | sh`, which installs `tbx` and then any tools named. Alternates are a Homebrew tap, plus `npx tbx-cli install`, `pnpm dlx tbx-cli install` and `uvx --from tbx-cli tbx install` (the bare forms without `install` run `tbx` once and leave nothing on PATH). Releases attach `.deb` and `.rpm` files. Versions are per tool with semver, and releases are automated. The repo README opens with the install line, a short demo and the tool catalog.
 
 ## Migration notes
 

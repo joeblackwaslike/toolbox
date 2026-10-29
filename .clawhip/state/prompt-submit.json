@@ -1,8 +1,8 @@
 {
-  "observed_at": "2026-10-29T16:38:26.223Z",
+  "observed_at": "2026-10-29T16:42:23.764Z",
   "provider": "claude-code",
   "event_name": "UserPromptSubmit",
   "session_id": "255a7203-f2b6-475b-9da1-2558aad1f6a1",
   "turn_id": null,
-  "prompt_summary": "<task-notification>\n<task-id>afb579362d627f74d</task-id>\n<tool-use-id>toolu_01JAqmDqPTjXqfqoZyiScZno</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-joe-github-joeblackwaslike-toolbox/255a72…"
+  "prompt_summary": "<task-notification>\n<task-id>a57d0b3c5aa79e2b1</task-id>\n<tool-use-id>toolu_015RXRVWMkd5i78TN5euyFdY</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-joe-github-joeblackwaslike-toolbox/255a72…"
 }
