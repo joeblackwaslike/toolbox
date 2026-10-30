@@ -1,0 +1,34 @@
+name = "demo"
+alias = "dm"
+summary = "Demo tool for parser and generator tests"
+language = "ts"
+version = "0.1.0"
+platforms = ["macos", "linux"]
+
+[[args]]
+name = "src"
+summary = "Input file"
+required = true
+
+[[args]]
+name = "dest"
+summary = "Output file"
+required = false
+
+[[options]]
+long = "verbose"
+short = "v"
+summary = "Print progress"
+type = "bool"
+
+[[options]]
+long = "mode"
+short = "m"
+summary = "Processing mode"
+type = "string"
+default = "fast"
+
+[[options]]
+long = "count"
+summary = "Number of passes"
+type = "int"
