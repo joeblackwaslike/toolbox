@@ -33,3 +33,5 @@ Husky sets `core.hooksPath=.husky/_` in the shared `.git/config`. In a fresh wor
 ## Commits
 
 Conventional Commits, enforced by commitlint through Husky.
+
+The Python test recipe passes `-p no:faulthandler --no-header` because a bare run can hang in non-interactive shells (TTY detection).

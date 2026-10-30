@@ -43,7 +43,7 @@ test-py:
     echo "no python tests, skipping"
     exit 0
   fi
-  uv run pytest --no-header -q
+  uv run pytest -p no:faulthandler --no-header -q
 
 test-sh:
   #!/usr/bin/env bash
