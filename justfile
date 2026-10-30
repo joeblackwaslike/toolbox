@@ -39,7 +39,7 @@ test-ts:
 test-py:
   #!/usr/bin/env bash
   set -euo pipefail
-  if ! find shared/py tests tools \( -name 'test_*.py' -o -name '*_test.py' \) -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
+  if ! { find shared/py tests tools \( -name 'test_*.py' -o -name '*_test.py' \) -not -path '*/.venv/*' 2>/dev/null || true; } | grep -q .; then
     echo "no python tests, skipping"
     exit 0
   fi
