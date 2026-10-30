@@ -45,7 +45,7 @@ export default tseslint.config(
       'import-x/no-duplicates': 'off',
       'no-secrets/no-secrets': ['error', { tolerance: 4.5 }],
       '@typescript-eslint/no-magic-numbers': ['warn', { ignore: [-1, 0, 1, 2, 10, 100, 1000], ignoreArrayIndexes: true, ignoreDefaultValues: true, ignoreClassFieldInitialValues: true, ignoreEnums: true, ignoreNumericLiteralTypes: true, ignoreReadonlyClassProperties: true, enforceConst: true }],
-      'unicorn/prevent-abbreviations': ['error', { replacements: { props: false, ref: false, ctx: false, req: false, res: false, err: false, db: false, id: false, env: false, fn: false, dir: false, src: false, dest: false, tmp: false, config: false, args: false } }],
+      'unicorn/prevent-abbreviations': ['error', { allowList: { ArgSpec: true }, replacements: { props: false, ref: false, ctx: false, req: false, res: false, err: false, db: false, id: false, env: false, fn: false, dir: false, src: false, dest: false, tmp: false, config: false, args: false } }],
       'unicorn/no-null': 'off',
       'unicorn/filename-case': ['error', { case: 'kebabCase', multipleFileExtensions: true }],
       'unicorn/no-process-exit': 'off',
