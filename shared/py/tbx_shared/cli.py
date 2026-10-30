@@ -1,0 +1,231 @@
+"""Manifest-driven command line parsing for Python tbx tools."""
+
+import re
+import sys
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, NoReturn
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+from tbx_shared.errors import ExitCode, ToolError
+from tbx_shared.output import Output
+
+type OptionValue = str | int | bool
+type Manifest = Mapping[str, Any]
+
+BUILTIN_OPTIONS: tuple[dict[str, str], ...] = (
+    {"long": "no-input", "short": "y", "summary": "Disable all prompts", "type": "bool"},
+    {"long": "json", "summary": "Print machine-readable JSON to stdout", "type": "bool"},
+    {"long": "help", "short": "h", "summary": "Show help, as JSON with --json", "type": "bool"},
+)
+"""Flags every tool gets, in help order; mirrors ``BUILTIN_OPTIONS`` in ``manifest.ts``."""
+
+_INTEGER_PATTERN = re.compile(r"-?\d+")
+_BUILTIN_NAMES = {"no-input": "no_input", "json": "json_mode", "help": "show_help"}
+
+
+@dataclass(frozen=True, slots=True)
+class ToolContext:
+    """What a tool's run function receives once its command line has parsed.
+
+    ``args`` holds the positional arguments that were given, keyed by manifest name. ``opts``
+    holds option values keyed by manifest long name; bool options are always present.
+    ``interactive`` is true only when stdin is a TTY and neither ``-y``/``--no-input`` nor
+    ``--json`` was given.
+    """
+
+    args: dict[str, str]
+    opts: dict[str, OptionValue]
+    json: bool
+    interactive: bool
+    out: Output
+
+
+type ToolRun = Callable[[ToolContext], None]
+
+
+class _Integer(click.ParamType[int]):
+    name = "integer"
+
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> int:
+        if isinstance(value, int):
+            return value
+        if not _INTEGER_PATTERN.fullmatch(str(value)):
+            self.fail("must be an integer", param, ctx)
+        return int(value)
+
+
+def _options(manifest: Manifest) -> list[Mapping[str, Any]]:
+    return [*manifest.get("options", []), *BUILTIN_OPTIONS]
+
+
+def _usage_line(manifest: Manifest) -> str:
+    operands = [
+        f"<{arg['name']}>" if arg["required"] else f"[{arg['name']}]"
+        for arg in manifest.get("args", [])
+    ]
+    return " ".join([manifest["name"], "[options]", *operands])
+
+
+def usage_of(manifest: Manifest) -> dict[str, Any]:
+    """Build the usage document ``--help --json`` prints; identical to ``usageOf`` in TypeScript."""
+    return {
+        "name": manifest["name"],
+        "alias": manifest.get("alias"),
+        "summary": manifest["summary"],
+        "version": manifest["version"],
+        "usage": _usage_line(manifest),
+        "args": [
+            {"name": arg["name"], "summary": arg["summary"], "required": arg["required"]}
+            for arg in manifest.get("args", [])
+        ],
+        "options": [
+            {
+                "long": spec["long"],
+                "short": spec.get("short"),
+                "summary": spec["summary"],
+                "type": spec["type"],
+                "default": spec.get("default"),
+            }
+            for spec in _options(manifest)
+        ],
+    }
+
+
+def _click_option(name: str, spec: Mapping[str, Any]) -> click.Option:
+    short = [f"-{spec['short']}"] if "short" in spec else []
+    decls = [*short, f"--{spec['long']}", name]
+    if spec["type"] == "bool":
+        return click.Option(decls, is_flag=True, default=spec.get("default", False))
+    kind = _Integer() if spec["type"] == "int" else click.STRING
+    return click.Option(decls, type=kind, default=spec.get("default"), metavar=spec["long"].upper())
+
+
+def _print_help(usage: Mapping[str, Any]) -> None:
+    console = Console(highlight=False)
+    console.print(f"Usage: {usage['usage']}", markup=False)
+    console.print()
+    console.print(usage["summary"], markup=False)
+    console.print()
+    table = Table.grid(padding=(0, 2))
+    table.add_row(Text("Arguments:", style="bold"))
+    for arg in usage["args"]:
+        table.add_row(Text(f"  {arg['name']}"), Text(arg["summary"]))
+    table.add_row(Text("Options:", style="bold"))
+    for spec in usage["options"]:
+        short = f"-{spec['short']}, " if spec["short"] else "    "
+        value = "" if spec["type"] == "bool" else f" <{spec['long']}>"
+        table.add_row(Text(f"  {short}--{spec['long']}{value}"), Text(spec["summary"]))
+    console.print(table)
+
+
+def _write_help(manifest: Manifest, *, json: bool) -> int:
+    if json:
+        Output(json=True).result(usage_of(manifest))
+    else:
+        _print_help(usage_of(manifest))
+    return ExitCode.OK
+
+
+def _invoke(run: ToolRun, ctx: ToolContext) -> int:
+    try:
+        run(ctx)
+    except ToolError as error:
+        ctx.out.error(f"error: {error}")
+        return error.code
+    return ExitCode.OK
+
+
+def _usage_error(manifest: Manifest, message: str, *, json: bool) -> int:
+    out = Output(json=json)
+    out.error(f"error: {message}")
+    out.error(f"Usage: {_usage_line(manifest)}")
+    return ExitCode.USAGE
+
+
+def _stdin_is_tty() -> bool:
+    return sys.stdin is not None and sys.stdin.isatty()
+
+
+def build_command(
+    manifest: Manifest, run: ToolRun, *, stdin_tty: bool | None = None
+) -> click.Command:
+    """Build the Click command for a manifest. Its callback returns the exit code.
+
+    ``--help`` wins over a missing argument; ``--help --json`` prints ``usage_of(manifest)``.
+    A missing required argument returns ``ExitCode.USAGE`` and never prompts. A tool with
+    subcommands can add this command and Typer sub-apps (via ``typer.main.get_command``) to one
+    ``click.Group``; Typer 0.26+ vendors Click, so that mix is duck-typed, not supported by Typer.
+
+    Args:
+        manifest: the parsed ``tool.toml``, already validated by the TypeScript loader.
+        run: the tool body; raise ``ToolError`` to pick the exit code.
+        stdin_tty: whether stdin is a terminal; checked at call time when ``None``.
+    """
+    args = list(manifest.get("args", []))
+    options = list(manifest.get("options", []))
+
+    def callback(**values: Any) -> int:
+        json = bool(values["json_mode"])
+        if values["show_help"]:
+            return _write_help(manifest, json=json)
+        given = {
+            arg["name"]: values[f"arg_{index}"]
+            for index, arg in enumerate(args)
+            if values[f"arg_{index}"] is not None
+        }
+        missing = next((arg for arg in args if arg["required"] and arg["name"] not in given), None)
+        if missing is not None:
+            message = f"missing required argument '{missing['name']}'"
+            return _usage_error(manifest, message, json=json)
+        tty = _stdin_is_tty() if stdin_tty is None else stdin_tty
+        ctx = ToolContext(
+            args=given,
+            opts={
+                spec["long"]: values[f"opt_{index}"]
+                for index, spec in enumerate(options)
+                if values[f"opt_{index}"] is not None
+            },
+            json=json,
+            interactive=tty and not values["no_input"] and not json,
+            out=Output(json=json),
+        )
+        return _invoke(run, ctx)
+
+    params: list[click.Parameter] = [
+        click.Argument([f"arg_{index}"], required=False, metavar=arg["name"])
+        for index, arg in enumerate(args)
+    ]
+    params += [_click_option(f"opt_{index}", spec) for index, spec in enumerate(options)]
+    params += [_click_option(_BUILTIN_NAMES[spec["long"]], spec) for spec in BUILTIN_OPTIONS]
+    return click.Command(manifest["name"], params=params, callback=callback, add_help_option=False)
+
+
+def run_tool(
+    manifest: Manifest, run: ToolRun, argv: Sequence[str], *, stdin_tty: bool | None = None
+) -> int:
+    """Parse ``argv`` against the manifest and call ``run``, returning the exit code.
+
+    Parse errors (unknown flag, bad value, too many or missing arguments) return
+    ``ExitCode.USAGE`` with a usage line on stderr.
+    """
+    command = build_command(manifest, run, stdin_tty=stdin_tty)
+    try:
+        code = command.main(args=list(argv), prog_name=manifest["name"], standalone_mode=False)
+    except click.UsageError as error:
+        return _usage_error(manifest, error.format_message(), json="--json" in argv)
+    except click.ClickException as error:
+        error.show()
+        return error.exit_code
+    except click.Abort:
+        return ExitCode.FAILURE
+    return int(code)
+
+
+def define_tool(manifest: Manifest, run: ToolRun) -> NoReturn:
+    """Run a Python tool: parse ``sys.argv`` with ``run_tool`` and exit with its code."""
+    sys.exit(run_tool(manifest, run, sys.argv[1:]))
