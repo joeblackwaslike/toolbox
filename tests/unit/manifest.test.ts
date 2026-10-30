@@ -47,6 +47,16 @@ function manifest(name: string, alias?: string): ReturnType<typeof parseManifest
   return alias === undefined ? rest : { ...rest, alias };
 }
 
+function fieldPathOf(toml: string): string | undefined {
+  try {
+    parseManifest(toml);
+  } catch (error) {
+    if (error instanceof ManifestError) return error.fieldPath;
+    throw error;
+  }
+  return undefined;
+}
+
 describe('parseManifest', () => {
   it('parses a valid manifest', () => {
     const m = parseManifest(VALID);
@@ -84,6 +94,26 @@ describe('parseManifest', () => {
 
   it('rejects unknown keys', () => {
     expect(() => parseManifest(`${VALID}\nbogus = 1\n`)).toThrow(/bogus/);
+    expect(fieldPathOf(`bogus = 1\n${VALID}`)).toBe('bogus');
+  });
+
+  it('names a nested unknown key in fieldPath', () => {
+    const toml = VALID.replace('summary = "Overwrite"', 'summary = "Overwrite"\nbogus = 1');
+    expect(fieldPathOf(toml)).toBe('options.0.bogus');
+  });
+
+  it('accepts an option long name over 16 characters', () => {
+    const toml = VALID.replace('long = "force"', 'long = "force-overwrite-everything"');
+    expect(parseManifest(toml).options[0]?.long).toBe('force-overwrite-everything');
+  });
+
+  it('rejects a version with a leading zero', () => {
+    expect(fieldPathOf(VALID.replace('version = "1.2.3"', 'version = "01.2.3"'))).toBe('version');
+  });
+
+  it('accepts a semver prerelease with build metadata', () => {
+    const toml = VALID.replace('version = "1.2.3"', 'version = "1.0.0-rc.1+build.5"');
+    expect(parseManifest(toml).version).toBe('1.0.0-rc.1+build.5');
   });
 
   it('rejects empty platforms and a summary over 80 characters', () => {

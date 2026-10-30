@@ -3,7 +3,15 @@ import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/;
+const OPTION_PATTERN = /^[a-z][a-z0-9-]*$/;
+const SEMVER_NUMBER = String.raw`(?:0|[1-9]\d*)`;
+const SEMVER_PRERELEASE_ID = String.raw`(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)`;
+const SEMVER_BUILD_ID = '[0-9a-zA-Z-]+';
+const SEMVER_PATTERN = new RegExp(
+  `^${SEMVER_NUMBER}\\.${SEMVER_NUMBER}\\.${SEMVER_NUMBER}` +
+    `(?:-${SEMVER_PRERELEASE_ID}(?:\\.${SEMVER_PRERELEASE_ID})*)?` +
+    `(?:\\+${SEMVER_BUILD_ID}(?:\\.${SEMVER_BUILD_ID})*)?$`,
+);
 const MAX_SUMMARY_LENGTH = 80;
 const MAX_HOUR = 23;
 const MAX_MINUTE = 59;
@@ -34,7 +42,7 @@ type OptSpecType = 'bool' | 'string' | 'int';
 
 const optSpecSchema = z
   .strictObject({
-    long: z.string().regex(NAME_PATTERN),
+    long: z.string().regex(OPTION_PATTERN),
     short: z.string().length(1).optional(),
     summary: z.string().min(1),
     type: z.enum(['bool', 'string', 'int']),
@@ -109,7 +117,8 @@ export type UnitSpec = z.infer<typeof unitSpecSchema>;
 export type ToolManifest = z.infer<typeof toolManifestSchema>;
 
 function formatIssue(issue: z.core.$ZodIssue): ManifestError {
-  const fieldPath = issue.path.length > 0 ? issue.path.join('.') : ROOT_PATH;
+  const segments = issue.code === 'unrecognized_keys' ? [...issue.path, ...issue.keys] : issue.path;
+  const fieldPath = segments.length > 0 ? segments.map(String).join('.') : ROOT_PATH;
   return new ManifestError(`${fieldPath}: ${issue.message}`, fieldPath);
 }
 
