@@ -1,8 +1,0 @@
-{
-  "observed_at": "2026-10-30T02:58:02.518Z",
-  "provider": "claude-code",
-  "event_name": "UserPromptSubmit",
-  "session_id": "255a7203-f2b6-475b-9da1-2558aad1f6a1",
-  "turn_id": null,
-  "prompt_summary": "<task-notification>\n<task-id>a40c193813540c985</task-id>\n<tool-use-id>toolu_0136R8U9syCWDMay41fVaLTS</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-joe-github-joeblackwaslike-toolbox/255a72…"
-}
