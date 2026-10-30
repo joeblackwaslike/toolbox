@@ -149,6 +149,15 @@ describe('systemd rendering', () => {
     expect(timer).toContain('OnActiveSec=0');
   });
 
+  it('starts the interval clock one interval after activation when runAtLoad is false', () => {
+    const timer = renderSystemdTimer(
+      manifest('kind = "schedule"\ninterval = 900\nrunAtLoad = false'),
+      CTX,
+    );
+    expect(timer).toContain('OnActiveSec=900s');
+    expect(timer).toContain('OnUnitActiveSec=900s');
+  });
+
   it('refuses a timer for a daemon', () => {
     expect(() => renderSystemdTimer(DAEMON, CTX)).toThrow(/schedule/);
   });

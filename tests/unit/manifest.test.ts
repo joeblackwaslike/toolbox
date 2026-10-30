@@ -103,6 +103,22 @@ default = true
     expect(() => parseManifest(toml)).toThrow(/unit/);
   });
 
+  it('rejects out-of-range or non-integer unit calendar and interval values', () => {
+    for (const bad of ['hour = 24', 'hour = -1', 'hour = 3.5', 'minute = 60', 'minute = 1.5']) {
+      const key = bad.split(' ')[0] as string;
+      const toml = VALID.replace(new RegExp(`${key} = \\S+`), bad);
+      expect(() => parseManifest(toml), bad).toThrow(ManifestError);
+    }
+    const interval = VALID.replace(/\[unit\.calendar\][\s\S]*$/, '').replace(
+      'runAtLoad',
+      'interval = 0\nrunAtLoad',
+    );
+    expect(() => parseManifest(interval)).toThrow(/interval/);
+    expect(() => parseManifest(interval.replace('interval = 0', 'interval = 1.5'))).toThrow(
+      /interval/,
+    );
+  });
+
   it('rejects unknown keys', () => {
     expect(() => parseManifest(`${VALID}\nbogus = 1\n`)).toThrow(/bogus/);
     expect(fieldPathOf(`bogus = 1\n${VALID}`)).toBe('bogus');

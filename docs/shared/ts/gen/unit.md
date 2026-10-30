@@ -25,7 +25,8 @@ launchd returns a user agent plist for `~/Library/LaunchAgents/<label>.plist`, l
 `<home>/Library/Logs/<name>.log`. systemd returns the user service for
 `~/.config/systemd/user/<label>.service`, logging to the journal. A systemd `schedule` unit
 also needs the timer from `renderSystemdTimer`. Output is deterministic and every
-interpolated value is escaped for its format.
+interpolated value is escaped for its format. A daemon unit ignores `runAtLoad` for its
+timing on both formats, because launchd KeepAlive and systemd Restart start it regardless.
 
 - @throws {Error} when the manifest has no `[unit]`, lacks the matching platform, or a context
 value contains a control character.

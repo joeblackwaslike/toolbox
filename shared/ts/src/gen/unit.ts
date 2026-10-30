@@ -159,7 +159,8 @@ function systemd(m: ToolManifest, unit: UnitSpec, ctx: UnitContext): string {
  * `<home>/Library/Logs/<name>.log`. systemd returns the user service for
  * `~/.config/systemd/user/<label>.service`, logging to the journal. A systemd `schedule` unit
  * also needs the timer from `renderSystemdTimer`. Output is deterministic and every
- * interpolated value is escaped for its format.
+ * interpolated value is escaped for its format. A daemon unit ignores `runAtLoad` for its
+ * timing on both formats, because launchd KeepAlive and systemd Restart start it regardless.
  *
  * @throws {Error} when the manifest has no `[unit]`, lacks the matching platform, or a context
  * value contains a control character.
@@ -167,6 +168,11 @@ function systemd(m: ToolManifest, unit: UnitSpec, ctx: UnitContext): string {
 export function renderUnit(m: ToolManifest, kind: UnitKind, ctx: UnitContext): string {
   const unit = unitOf(m, kind, ctx);
   return kind === 'launchd' ? launchd(m, unit, ctx) : systemd(m, unit, ctx);
+}
+
+function firstActivation(unit: UnitSpec): string[] {
+  if (unit.runAtLoad) return ['OnActiveSec=0'];
+  return unit.interval === undefined ? [] : [`OnActiveSec=${unit.interval}s`];
 }
 
 /**
@@ -187,7 +193,7 @@ export function renderSystemdTimer(m: ToolManifest, ctx: UnitContext): string {
       ? []
       : [`OnCalendar=*-*-* ${pad(unit.calendar.hour)}:${pad(unit.calendar.minute)}:00`]),
     ...(unit.interval === undefined ? [] : [`OnUnitActiveSec=${unit.interval}s`]),
-    ...(unit.runAtLoad ? ['OnActiveSec=0'] : []),
+    ...firstActivation(unit),
     ...(unit.calendar === undefined ? [] : ['Persistent=true']),
     '',
     '[Install]',
