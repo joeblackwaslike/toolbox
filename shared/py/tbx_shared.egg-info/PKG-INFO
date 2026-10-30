@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: tbx-shared
-Version: 0.1.0
-Summary: Shared runtime helpers for Python tbx tools
-Requires-Python: <4.0,>=3.12
-Requires-Dist: click>=8.1
-Requires-Dist: rich>=13.7
-Requires-Dist: tenacity>=8.5
-Requires-Dist: typer>=0.12

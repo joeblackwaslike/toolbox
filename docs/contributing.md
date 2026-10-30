@@ -26,6 +26,10 @@ just install
 
 Suites with no tests exit 0.
 
+## Git hooks
+
+Husky sets `core.hooksPath=.husky/_` in the shared `.git/config`. In a fresh worktree, run `pnpm install` before committing, or the pre-commit hook fails. Checkouts without `.husky/_` bypass the hooks.
+
 ## Commits
 
 Conventional Commits, enforced by commitlint through Husky.

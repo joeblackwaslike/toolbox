@@ -1,8 +1,0 @@
-pyproject.toml
-tbx_shared/__init__.py
-tbx_shared/py.typed
-tbx_shared.egg-info/PKG-INFO
-tbx_shared.egg-info/SOURCES.txt
-tbx_shared.egg-info/dependency_links.txt
-tbx_shared.egg-info/requires.txt
-tbx_shared.egg-info/top_level.txt

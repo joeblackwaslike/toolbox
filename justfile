@@ -38,11 +38,12 @@ test-ts:
 
 test-py:
   #!/usr/bin/env bash
-  set -uo pipefail
-  uv run pytest -p no:faulthandler --no-header -q
-  status=$?
-  [ "$status" -eq 5 ] && exit 0
-  exit "$status"
+  set -euo pipefail
+  if ! find shared/py tests tools \( -name 'test_*.py' -o -name '*_test.py' \) -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
+    echo "no python tests, skipping"
+    exit 0
+  fi
+  uv run pytest --no-header -q
 
 test-sh:
   #!/usr/bin/env bash
