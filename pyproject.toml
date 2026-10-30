@@ -30,6 +30,10 @@ show_error_codes = true
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+# typer 0.25.1 imports Click helpers that Click 9 removes; drop this when typer is upgraded.
+filterwarnings = [
+    "ignore:'click\\.utils\\.get_(binary|text)_stream' is deprecated:DeprecationWarning:typer",
+]
 testpaths = ["tests", "tools", "shared/py"]
 
 [tool.ruff]
