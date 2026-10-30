@@ -15,6 +15,7 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/gen/index](ts/gen/index.md) (checkDrift, generateAll, syncGenerated, undocumentedSymbols, writeGenerated)
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)
 - [ts/gen/shared-docs](ts/gen/shared-docs.md) (extractSharedDocs, missingSharedDocs, renderSharedDocs, SharedModuleDoc, SharedSymbol)
+- [ts/gen/unit](ts/gen/unit.md) (renderSystemdTimer, renderUnit, UnitContext, UnitKind, unitLabel, UnitValidation, validateUnit)
 - [ts/manifest](ts/manifest.md) (ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, loadManifest, ManifestError, OptSpec, parseManifest, ToolManifest, UnitSpec)
 - [ts/output](ts/output.md) (createOutput, Output)
 
