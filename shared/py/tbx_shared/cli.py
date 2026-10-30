@@ -154,12 +154,14 @@ def _stdin_is_tty() -> bool:
 def build_command(
     manifest: Manifest, run: ToolRun, *, stdin_tty: bool | None = None
 ) -> click.Command:
-    """Build the Click command for a manifest. Its callback returns the exit code.
+    """Build the real Click command for a manifest; it exits through the Click context.
 
     ``--help`` wins over a missing argument; ``--help --json`` prints ``usage_of(manifest)``.
-    A missing required argument returns ``ExitCode.USAGE`` and never prompts. A tool with
-    subcommands can add this command and Typer sub-apps (via ``typer.main.get_command``) to one
-    ``click.Group``; Typer 0.26+ vendors Click, so that mix is duck-typed, not supported by Typer.
+    A missing required argument exits ``ExitCode.USAGE`` and never prompts, and a ``ToolError``
+    exits with its code, also when the command is mounted in a ``click.Group``. A tool with
+    subcommands adds this command and its Typer sub-apps (via ``typer.main.get_command``) to
+    one ``click.Group``. That needs ``typer<0.26``, which shares this Click; later Typer
+    releases vendor their own Click.
 
     Args:
         manifest: the parsed ``tool.toml``, already validated by the TypeScript loader.
@@ -169,7 +171,7 @@ def build_command(
     args = list(manifest.get("args", []))
     options = list(manifest.get("options", []))
 
-    def callback(**values: Any) -> int:
+    def outcome(values: Mapping[str, Any]) -> int:
         json = bool(values["json_mode"])
         if values["show_help"]:
             return _write_help(manifest, json=json)
@@ -195,6 +197,9 @@ def build_command(
             out=Output(json=json),
         )
         return _invoke(run, ctx)
+
+    def callback(**values: Any) -> NoReturn:
+        click.get_current_context().exit(outcome(values))
 
     params: list[click.Parameter] = [
         click.Argument([f"arg_{index}"], required=False, metavar=arg["name"])
@@ -227,5 +232,9 @@ def run_tool(
 
 
 def define_tool(manifest: Manifest, run: ToolRun) -> NoReturn:
-    """Run a Python tool: parse ``sys.argv`` with ``run_tool`` and exit with its code."""
+    """Run a Python tool: parse ``sys.argv`` with ``run_tool`` and exit with its code.
+
+    The command is a real Click command built from the manifest, not a Typer app. Typer
+    sub-apps mount next to it in a ``click.Group`` through ``typer.main.get_command``.
+    """
     sys.exit(run_tool(manifest, run, sys.argv[1:]))

@@ -147,7 +147,8 @@ def test_returns_the_tool_error_code_and_writes_the_message_to_stderr(capsys):
     assert "nope" in captured.err
 
 
-def test_a_typer_sub_app_mounts_next_to_the_manifest_command():
+def mounted_group() -> click.Group:
+    """A click.Group holding the manifest command as ``run`` and a Typer sub-app as ``sub``."""
     sub = typer.Typer()
 
     @sub.command()
@@ -158,9 +159,31 @@ def test_a_typer_sub_app_mounts_next_to_the_manifest_command():
     def bye() -> None:
         print("bye")
 
+    def run(ctx: ToolContext) -> None:
+        if ctx.args["src"] == "fail":
+            raise ToolError("failed on purpose", ExitCode.CONFIG)
+
     group = click.Group("demo")
-    group.add_command(build_command(MANIFEST, lambda _ctx: None), "run")
-    group.add_command(typer.main.get_command(sub), "sub")  # type: ignore[arg-type]
+    group.add_command(build_command(MANIFEST, run, stdin_tty=False), "run")
+    group.add_command(typer.main.get_command(sub), "sub")
+    return group
+
+
+def test_manifest_command_mounted_in_a_group_exits_with_its_codes():
     runner = CliRunner()
-    assert runner.invoke(group, ["sub", "hello", "bob"]).output == "hello bob\n"
+    group = mounted_group()
+    missing = runner.invoke(group, ["run", "-y"])
+    assert missing.exit_code == ExitCode.USAGE
+    assert "missing required argument 'src'" in missing.stderr
+    assert runner.invoke(group, ["run", "fail"]).exit_code == ExitCode.CONFIG
     assert runner.invoke(group, ["run", "in.txt"]).exit_code == ExitCode.OK
+
+
+def test_a_typer_sub_app_mounted_next_to_the_manifest_command_exits_2_on_usage_errors():
+    runner = CliRunner()
+    group = mounted_group()
+    assert runner.invoke(group, ["sub", "hello", "bob"]).output == "hello bob\n"
+    for argv in (["sub", "hello"], ["sub", "hello", "bob", "--bogus"]):
+        result = runner.invoke(group, argv)
+        assert isinstance(result.exception, SystemExit), (argv, result.exception)
+        assert result.exit_code == ExitCode.USAGE, argv
