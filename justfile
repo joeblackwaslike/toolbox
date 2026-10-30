@@ -1,0 +1,54 @@
+default:
+  @just --list
+
+install:
+  pnpm install
+  uv sync
+
+lint: lint-ts lint-py lint-sh
+
+lint-ts:
+  pnpm typecheck
+  pnpm lint
+
+lint-py:
+  uv run ruff check .
+  uv run ruff format --check .
+  uv run mypy shared/py/tbx_shared
+
+lint-sh:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  files=$(git ls-files -co --exclude-standard -- '*.sh' '*.bash')
+  [ -z "$files" ] && exit 0
+  shellcheck $files
+  shfmt -d $files
+
+format-sh:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  files=$(git ls-files -co --exclude-standard -- '*.sh' '*.bash')
+  [ -z "$files" ] && exit 0
+  shfmt -w $files
+
+test: test-ts test-py test-sh
+
+test-ts:
+  pnpm test
+
+test-py:
+  #!/usr/bin/env bash
+  set -uo pipefail
+  uv run pytest -p no:faulthandler --no-header -q
+  status=$?
+  [ "$status" -eq 5 ] && exit 0
+  exit "$status"
+
+test-sh:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  files=$(git ls-files -co --exclude-standard -- '*.bats')
+  [ -z "$files" ] && exit 0
+  bats $files
+
+verify-all: lint test
