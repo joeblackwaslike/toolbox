@@ -2,24 +2,26 @@
 
 > A toolbox of small command line tools with shared runtime helpers.
 
-## Tools
+## Docs
 
+- [Tool catalog](docs/catalog.md): every tool with its alias, language and summary
+- [Shared modules](docs/shared/index.md): helpers every tool reuses
 
 ## Shared modules
 
-- py/cli (docs/shared/py/cli.md)
-- ts/cli (docs/shared/ts/cli.md)
-- py/errors (docs/shared/py/errors.md)
-- ts/errors (docs/shared/ts/errors.md)
-- ts/gen-parser (docs/shared/ts/gen-parser.md)
-- ts/gen/completions (docs/shared/ts/gen/completions.md)
-- ts/gen/contract (docs/shared/ts/gen/contract.md)
-- ts/gen/files (docs/shared/ts/gen/files.md)
-- ts/gen/index (docs/shared/ts/gen/index.md)
-- ts/gen/readme (docs/shared/ts/gen/readme.md)
-- ts/gen/shared-docs (docs/shared/ts/gen/shared-docs.md)
-- sh/lib (docs/shared/sh/lib.md)
-- ts/manifest (docs/shared/ts/manifest.md)
-- py/output (docs/shared/py/output.md)
-- ts/output (docs/shared/ts/output.md)
-- py/retry (docs/shared/py/retry.md)
+- [py/cli](docs/shared/py/cli.md): ToolContext, build_command, define_tool, run_tool, usage_of
+- [ts/cli](docs/shared/ts/cli.md): defineTool, OptionValue, runTool, ToolContext, ToolRun, ToolUsage, usageOf, UsageOption
+- [py/errors](docs/shared/py/errors.md): ExitCode, ToolError
+- [ts/errors](docs/shared/ts/errors.md): ExitCode, ToolError
+- [ts/gen-parser](docs/shared/ts/gen-parser.md): generateShellParser
+- [ts/gen/completions](docs/shared/ts/gen/completions.md): CompletionShell, renderCompletions
+- [ts/gen/contract](docs/shared/ts/gen/contract.md): ContractCase, generateContractTests
+- [ts/gen/files](docs/shared/ts/gen/files.md): compareText, GeneratedFile
+- [ts/gen/index](docs/shared/ts/gen/index.md): checkDrift, generateAll, syncGenerated, undocumentedSymbols, writeGenerated
+- [ts/gen/readme](docs/shared/ts/gen/readme.md): ReadmeOptions, renderCatalog, renderToolReadme
+- [ts/gen/shared-docs](docs/shared/ts/gen/shared-docs.md): extractSharedDocs, missingSharedDocs, renderSharedDocs, SharedModuleDoc, SharedSymbol
+- [sh/lib](docs/shared/sh/lib.md): tbx_die, tbx_error, tbx_info, tbx_result, tbx_result_json
+- [ts/manifest](docs/shared/ts/manifest.md): ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, loadManifest, ManifestError, OptSpec, parseManifest, ToolManifest, UnitSpec
+- [py/output](docs/shared/py/output.md): Output
+- [ts/output](docs/shared/ts/output.md): createOutput, Output
+- [py/retry](docs/shared/py/retry.md): retry_policy, with_retry

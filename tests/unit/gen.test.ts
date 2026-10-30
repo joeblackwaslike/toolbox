@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import {
   type GeneratedFile,
   checkDrift,
   generateAll,
+  syncGenerated,
   writeGenerated,
 } from '../../shared/ts/src/gen/index.ts';
 import { renderCatalog, renderToolReadme } from '../../shared/ts/src/gen/readme.ts';
@@ -179,5 +180,70 @@ describe('generateAll and checkDrift', () => {
     const drift = await checkDrift(root);
     expect(drift).toContain('undocumented: ts/bare.bare');
     expect(drift).toContain('docs/shared/ts/bare.md');
+  });
+});
+
+describe('stale generated files', () => {
+  it('reports a stale tool README, completion and shared page, and gen removes them', async () => {
+    const root = await tempRoot();
+    await syncGenerated(root);
+    await put(root, 'tools/gone/README.md', 'old\n');
+    await put(root, 'tools/gone/completions/gone.zsh', 'old\n');
+    await put(root, 'docs/shared/ts/removed.md', 'old\n');
+    await put(root, 'tools/demo/docs/notes.md', 'hand written\n');
+    expect([...(await checkDrift(root))].sort()).toEqual([
+      'docs/shared/ts/removed.md',
+      'tools/gone/README.md',
+      'tools/gone/completions/gone.zsh',
+    ]);
+    await syncGenerated(root);
+    expect(await checkDrift(root)).toEqual([]);
+    await expect(readFile(join(root, 'tools/gone/README.md'))).rejects.toThrow();
+    await expect(readFile(join(root, 'docs/shared/ts/removed.md'))).rejects.toThrow();
+    expect(await readFile(join(root, 'tools/demo/docs/guide.md'), 'utf8')).toContain('Demo guide');
+    expect(await readFile(join(root, 'tools/demo/docs/notes.md'), 'utf8')).toBe('hand written\n');
+  });
+});
+
+describe('guide link', () => {
+  it('readme links the guide only when it exists', async () => {
+    const demo = await loadManifest(DEMO);
+    const withGuide = renderToolReadme(demo, { hasGuide: true });
+    expect(withGuide).toContain('## Guide');
+    expect(withGuide).toContain('[docs/guide.md](docs/guide.md)');
+    expect(renderToolReadme(demo)).not.toContain('## Guide');
+    expect(renderToolReadme(demo, { hasGuide: false })).not.toContain('## Guide');
+    expect(renderToolReadme(demo, { hasGuide: true })).toBe(withGuide);
+  });
+
+  it('generateAll detects docs/guide.md', async () => {
+    const root = await tempRoot();
+    const files = await generateAll(root);
+    expect(files.find((f) => f.path === 'tools/demo/README.md')?.content).toContain('## Guide');
+    await rm(join(root, 'tools/demo/docs'), { recursive: true });
+    const after = await generateAll(root);
+    expect(after.find((f) => f.path === 'tools/demo/README.md')?.content).not.toContain('## Guide');
+  });
+});
+
+describe('llms.txt', () => {
+  it('uses markdown link entries and links the catalog and shared index', async () => {
+    const root = await tempRoot();
+    await put(root, 'shared/sh/z.sh', '# @description Hi.\nz_hi() {\n  :\n}\n');
+    const llms = (await generateAll(root)).find((f) => f.path === 'docs/llms.txt')?.content ?? '';
+    expect(llms).toContain('- [Tool catalog](docs/catalog.md): ');
+    expect(llms).toContain('- [Shared modules](docs/shared/index.md): ');
+    expect(llms).toContain(
+      '- [demo](tools/demo/README.md): Demo tool for parser and generator tests',
+    );
+    expect(llms).toContain('- [sh/z](docs/shared/sh/z.md): z_hi');
+    expect(llms).not.toContain('\n\n\n');
+  });
+
+  it('omits the Tools section when there are no tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tbx-gen-'));
+    const llms = (await generateAll(root)).find((f) => f.path === 'docs/llms.txt')?.content ?? '';
+    expect(llms).not.toContain('## Tools');
+    expect(llms).not.toContain('\n\n\n');
   });
 });

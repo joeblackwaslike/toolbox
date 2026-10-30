@@ -9,7 +9,7 @@ async function checkDrift(root: string): Promise<string[]>
 ```
 
 Returns the paths whose on-disk content differs from `generateAll(root)` (a missing file
-counts), followed by one `undocumented: <lang>/<module>.<name>` entry per public shared
+counts), then generated files that are no longer produced (see `syncGenerated`), then one `undocumented: <lang>/<module>.<name>` entry per public shared
 symbol with no doc comment. An empty result means nothing has drifted.
 
 ## generateAll
@@ -21,6 +21,17 @@ async function generateAll(root: string): Promise<GeneratedFile[]>
 Renders every generated file for the repo at `root`: per-tool README and completions from
 `tools/<name>/tool.toml`, `docs/catalog.md`, `docs/llms.txt`, and the shared module pages.
 Output is deterministic and sorted by path.
+
+## syncGenerated
+
+```ts
+async function syncGenerated(root: string): Promise<string[]>
+```
+
+Writes `generateAll(root)` and deletes stale generated files: anything under
+`tools/<name>/README.md`, `tools/<name>/completions/`, `docs/shared/`, `docs/catalog.md` or
+`docs/llms.txt` that is no longer generated. Files outside those roots are never touched.
+Returns the deleted paths.
 
 ## undocumentedSymbols
 

@@ -48,11 +48,17 @@ function optionsSection(usage: ToolUsage): string[] {
   ];
 }
 
+/** Extra facts about the tool directory that change its README. */
+export interface ReadmeOptions {
+  /** True when `tools/<name>/docs/guide.md` exists; the README then links it. */
+  hasGuide?: boolean;
+}
+
 /**
  * Renders `tools/<name>/README.md` from a manifest: usage line, arguments and options (the
  * manifest's own, then the built-in flags), and the completion files. Output is deterministic.
  */
-export function renderToolReadme(m: ToolManifest): string {
+export function renderToolReadme(m: ToolManifest, options: ReadmeOptions = {}): string {
   const usage = usageOf(m);
   const facts = [
     `Version ${m.version}.`,
@@ -77,6 +83,7 @@ export function renderToolReadme(m: ToolManifest): string {
     '',
     ...argumentsSection(usage),
     ...optionsSection(usage),
+    ...(options.hasGuide === true ? ['## Guide', '', '[docs/guide.md](docs/guide.md)', ''] : []),
     '## Completions',
     '',
     ...SHELLS.map((shell) => `- ${shell}: \`completions/${m.name}.${shell}\``),

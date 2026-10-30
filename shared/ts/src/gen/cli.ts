@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkDrift, generateAll, undocumentedSymbols, writeGenerated } from './index.ts';
+import { checkDrift, syncGenerated, undocumentedSymbols } from './index.ts';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
@@ -10,7 +10,7 @@ async function main(check: boolean): Promise<number> {
     for (const entry of drift) process.stderr.write(`drift: ${entry}\n`);
     return drift.length === 0 ? 0 : 1;
   }
-  await writeGenerated(REPO_ROOT, await generateAll(REPO_ROOT));
+  await syncGenerated(REPO_ROOT);
   const missing = await undocumentedSymbols(REPO_ROOT);
   for (const entry of missing) process.stderr.write(`${entry}\n`);
   return missing.length === 0 ? 0 : 1;
