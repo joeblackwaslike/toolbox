@@ -17,9 +17,9 @@ class Output:
         if self._json:
             print(jsonlib.dumps(data))
         elif isinstance(data, str):
-            self._out.print(data)
+            self._print_plain(self._out, data)
         else:
-            self._out.print_json(jsonlib.dumps(data))
+            self._print_plain(self._out, jsonlib.dumps(data, indent=2))
 
     def info(self, message: str) -> None:
         """Write an informational line to stderr."""
@@ -30,4 +30,10 @@ class Output:
         self._write_err(message, style="red")
 
     def _write_err(self, message: str, style: str | None = None) -> None:
-        self._err.print(message, markup=False, style=None if self._json else style)
+        self._err.print(
+            message, markup=False, emoji=False, soft_wrap=True, style=None if self._json else style
+        )
+
+    @staticmethod
+    def _print_plain(console: Console, text: str) -> None:
+        console.print(text, markup=False, emoji=False, soft_wrap=True)

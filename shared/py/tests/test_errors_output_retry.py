@@ -72,3 +72,14 @@ def test_retry_policy_does_not_retry_an_exception_outside_retry_on():
     with pytest.raises(ValueError, match="nope"):
         with_retry(boom, retry_policy(attempts=3, base=0.001))()
     assert len(calls) == 1
+
+
+def test_human_result_is_byte_exact_when_piped(capsys):
+    text = "[bold]x[/bold] " + "a" * 200
+    Output(json=False).result(text)
+    assert capsys.readouterr().out == text + "\n"
+
+
+def test_human_result_leaves_emoji_codes_alone(capsys):
+    Output(json=False).result(":smile:")
+    assert capsys.readouterr().out == ":smile:\n"
