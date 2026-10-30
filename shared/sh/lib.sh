@@ -54,6 +54,6 @@ tbx_result_json() {
   local flags=()
   [[ "${TBX_JSON:-}" == "1" ]] && flags=(-c)
   local rendered
-  rendered=$(printf '%s' "$1" | jq "${flags[@]}" .) || tbx_die 65 "invalid JSON"
+  rendered=$(printf '%s' "$1" | jq ${flags[@]+"${flags[@]}"} .) || tbx_die 65 "invalid JSON"
   printf '%s\n' "$rendered"
 }

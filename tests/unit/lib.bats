@@ -67,3 +67,11 @@ setup() {
   run --separate-stderr bash -c "set -u; source '$LIB'; tbx_die"
   [ "$status" -eq 1 ]
 }
+
+@test "tbx_result_json works with an empty flag array under set -u on every bash" {
+  for shell in /bin/bash bash; do
+    run --separate-stderr "$shell" -c "set -euo pipefail; source '$LIB'; tbx_result_json '{\"a\":1}'"
+    [ "$status" -eq 0 ]
+    [ "${lines[1]}" = '  "a": 1' ]
+  done
+}

@@ -52,6 +52,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['shared/**/*.ts'],
+    rules: {
+      'import-x/no-relative-parent-imports': 'off',
+    },
+  },
+  {
     ignores: [
       'node_modules/**',
       'dist/**',
