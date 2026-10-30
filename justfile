@@ -52,4 +52,10 @@ test-sh:
   [ -z "$files" ] && exit 0
   bats $files
 
-verify-all: lint test
+gen:
+  bun shared/ts/src/gen/cli.ts
+
+gen-check:
+  bun shared/ts/src/gen/cli.ts --check
+
+verify-all: lint test gen-check

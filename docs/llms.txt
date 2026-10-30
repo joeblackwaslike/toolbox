@@ -1,0 +1,25 @@
+# tbx
+
+> A toolbox of small command line tools with shared runtime helpers.
+
+## Tools
+
+
+## Shared modules
+
+- py/cli (docs/shared/py/cli.md)
+- ts/cli (docs/shared/ts/cli.md)
+- py/errors (docs/shared/py/errors.md)
+- ts/errors (docs/shared/ts/errors.md)
+- ts/gen-parser (docs/shared/ts/gen-parser.md)
+- ts/gen/completions (docs/shared/ts/gen/completions.md)
+- ts/gen/contract (docs/shared/ts/gen/contract.md)
+- ts/gen/files (docs/shared/ts/gen/files.md)
+- ts/gen/index (docs/shared/ts/gen/index.md)
+- ts/gen/readme (docs/shared/ts/gen/readme.md)
+- ts/gen/shared-docs (docs/shared/ts/gen/shared-docs.md)
+- sh/lib (docs/shared/sh/lib.md)
+- ts/manifest (docs/shared/ts/manifest.md)
+- py/output (docs/shared/py/output.md)
+- ts/output (docs/shared/ts/output.md)
+- py/retry (docs/shared/py/retry.md)
