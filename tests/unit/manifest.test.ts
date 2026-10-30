@@ -68,6 +68,17 @@ describe('parseManifest', () => {
     expect(m.unit?.calendar).toEqual({ hour: 3, minute: 30 });
   });
 
+  it('rejects a bool option that defaults to true', () => {
+    const toml = `${VALID}
+[[options]]
+long = "color"
+summary = "Colorize"
+type = "bool"
+default = true
+`;
+    expect(() => parseManifest(toml)).toThrow(/bool option cannot default to true/);
+  });
+
   it('defaults args and options to empty arrays', () => {
     const toml = VALID.split('[[args]]')[0] ?? '';
     const m = parseManifest(toml);

@@ -26,7 +26,6 @@ platforms = ["linux"]
 long = "dry-run"
 summary = "Don't touch $PATH or \`x\`"
 type = "bool"
-default = true
 `),
     );
     const check = spawnSync('shellcheck', ['-s', 'bash', '-'], {
@@ -37,6 +36,6 @@ default = true
     expect(check.status).toBe(0);
     const format = spawnSync('shfmt', ['-i', '2', '-d'], { input: prelude, encoding: 'utf8' });
     expect(format.stdout).toBe('');
-    expect(prelude).toContain('TBX_OPT_DRY_RUN=1');
+    expect(prelude).toContain('TBX_OPT_DRY_RUN=0');
   });
 });

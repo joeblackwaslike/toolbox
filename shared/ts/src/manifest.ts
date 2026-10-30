@@ -90,6 +90,13 @@ const optSpecSchema = z
         path: ['default'],
         message: `default must be a ${opt.type} to match type "${opt.type}"`,
       });
+    } else if (opt.type === 'bool' && opt.default === true) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['default'],
+        message:
+          'a bool option cannot default to true because no-<flag> is not available to turn it off',
+      });
     }
   });
 
