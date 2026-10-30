@@ -20,12 +20,14 @@ tbx_result_json "$(jq -cn \
   --argjson verbose "$(bool "$TBX_OPT_VERBOSE")" \
   --arg mode "$TBX_OPT_MODE" \
   --arg count "$TBX_OPT_COUNT" \
+  --arg inputs "$TBX_OPT_INPUTS" \
   --argjson json "$(bool "$TBX_JSON")" \
   --argjson interactive "$(bool "$TBX_INTERACTIVE")" \
   '{
     args: ({src: $src} + (if $dest == "" then {} else {dest: $dest} end)),
     opts: ({verbose: $verbose, mode: $mode}
-      + (if $count == "" then {} else {count: ($count | tonumber)} end)),
+      + (if $count == "" then {} else {count: ($count | tonumber)} end)
+      + (if $inputs == "" then {} else {inputs: $inputs} end)),
     json: $json,
     interactive: $interactive
   }')"

@@ -32,3 +32,9 @@ default = "fast"
 long = "count"
 summary = "Number of passes"
 type = "int"
+
+[[options]]
+long = "inputs"
+short = "i"
+summary = "Extra input list, named next to the built-in --no-input"
+type = "string"

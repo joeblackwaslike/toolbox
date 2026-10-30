@@ -116,6 +116,10 @@ describe('parseManifest', () => {
     expect(fieldPathOf(VALID.replace('short = "f"', 'short = "h"'))).toBe('options.0.short');
   });
 
+  it('rejects the positive form of a no- built-in flag', () => {
+    expect(fieldPathOf(VALID.replace('long = "force"', 'long = "input"'))).toBe('options.0.long');
+  });
+
   it('rejects an option long name with a no- prefix', () => {
     expect(fieldPathOf(VALID.replace('long = "force"', 'long = "no-color"'))).toBe(
       'options.0.long',

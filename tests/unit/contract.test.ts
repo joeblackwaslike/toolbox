@@ -104,6 +104,29 @@ describe.each(LANGUAGES)('contract cases against the %s demo', (_language, comma
 });
 
 describe('cross-language parity', () => {
+  it('all three languages agree on an option named next to a built-in', async () => {
+    for (const [language, command, prefix] of LANGUAGES) {
+      const given = await runOpen(command, [
+        ...prefix,
+        'in.txt',
+        '--inputs',
+        'f.txt',
+        '-y',
+        '--json',
+      ]);
+      expect(JSON.parse(given.stdout), language).toMatchObject({
+        opts: { verbose: false, mode: 'fast', inputs: 'f.txt' },
+      });
+      const short = await runOpen(command, [...prefix, 'in.txt', '-yi', 'g.txt', '--json']);
+      expect(JSON.parse(short.stdout), language).toMatchObject({ opts: { inputs: 'g.txt' } });
+      const omitted = await runOpen(command, [...prefix, 'in.txt', '-y', '--json']);
+      expect(JSON.parse(omitted.stdout), language).toMatchObject({
+        opts: { verbose: false, mode: 'fast' },
+      });
+      expect(JSON.parse(omitted.stdout).opts, language).not.toHaveProperty('inputs');
+    }
+  });
+
   it('all three languages print the same --help --json and the same parsed context', async () => {
     const golden: unknown = JSON.parse(await readFile(`${FIXTURES}tools/demo/usage.json`, 'utf8'));
     const argv = ['in.txt', 'out.txt', '-v', '-m', 'slow', '--count', '2', '--json'];

@@ -34,7 +34,8 @@ export class ManifestError extends Error {
 
 /**
  * Flags the generated parsers add to every tool, in help order. A manifest option cannot
- * reuse their long or short names.
+ * reuse their long or short names, nor the positive form of a `no-` built-in (`input`),
+ * which Commander would pair with it into one negatable option.
  */
 export const BUILTIN_OPTIONS: readonly OptSpec[] = [
   { long: 'no-input', short: 'y', summary: 'Disable all prompts', type: 'bool' },
@@ -42,7 +43,12 @@ export const BUILTIN_OPTIONS: readonly OptSpec[] = [
   { long: 'help', short: 'h', summary: 'Show help, as JSON with --json', type: 'bool' },
 ];
 
-const RESERVED_LONGS: ReadonlySet<string> = new Set(BUILTIN_OPTIONS.map((option) => option.long));
+const NEGATION_PREFIX = 'no-';
+const RESERVED_LONGS: ReadonlySet<string> = new Set(
+  BUILTIN_OPTIONS.flatMap(({ long }) =>
+    long.startsWith(NEGATION_PREFIX) ? [long, long.slice(NEGATION_PREFIX.length)] : [long],
+  ),
+);
 const RESERVED_SHORTS: ReadonlySet<string> = new Set(
   BUILTIN_OPTIONS.flatMap((option) => option.short ?? []),
 );
@@ -61,7 +67,7 @@ const optSpecSchema = z
       .string()
       .regex(OPTION_PATTERN)
       .refine((long) => !RESERVED_LONGS.has(long), 'is a built-in flag')
-      .refine((long) => !long.startsWith('no-'), 'must not start with "no-"'),
+      .refine((long) => !long.startsWith(NEGATION_PREFIX), 'must not start with "no-"'),
     short: z
       .string()
       .regex(/^[a-zA-Z0-9]$/)

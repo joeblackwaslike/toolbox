@@ -7,22 +7,23 @@
 set -euo pipefail
 
 _TBX_USAGE='demo [options] <src> [dest]'
-_TBX_USAGE_JSON='{"name":"demo","alias":"dm","summary":"Demo tool for parser and generator tests","version":"0.1.0","usage":"demo [options] <src> [dest]","args":[{"name":"src","summary":"Input file","required":true},{"name":"dest","summary":"Output file","required":false}],"options":[{"long":"verbose","short":"v","summary":"Print progress","type":"bool","default":null},{"long":"mode","short":"m","summary":"Processing mode","type":"string","default":"fast"},{"long":"count","short":null,"summary":"Number of passes","type":"int","default":null},{"long":"no-input","short":"y","summary":"Disable all prompts","type":"bool","default":null},{"long":"json","short":null,"summary":"Print machine-readable JSON to stdout","type":"bool","default":null},{"long":"help","short":"h","summary":"Show help, as JSON with --json","type":"bool","default":null}]}'
+_TBX_USAGE_JSON='{"name":"demo","alias":"dm","summary":"Demo tool for parser and generator tests","version":"0.1.0","usage":"demo [options] <src> [dest]","args":[{"name":"src","summary":"Input file","required":true},{"name":"dest","summary":"Output file","required":false}],"options":[{"long":"verbose","short":"v","summary":"Print progress","type":"bool","default":null},{"long":"mode","short":"m","summary":"Processing mode","type":"string","default":"fast"},{"long":"count","short":null,"summary":"Number of passes","type":"int","default":null},{"long":"inputs","short":"i","summary":"Extra input list, named next to the built-in --no-input","type":"string","default":null},{"long":"no-input","short":"y","summary":"Disable all prompts","type":"bool","default":null},{"long":"json","short":null,"summary":"Print machine-readable JSON to stdout","type":"bool","default":null},{"long":"help","short":"h","summary":"Show help, as JSON with --json","type":"bool","default":null}]}'
 _TBX_HELP='Usage: demo [options] <src> [dest]
 
 Demo tool for parser and generator tests
 
 Arguments:
-  src                  Input file
-  dest                 Output file
+  src                    Input file
+  dest                   Output file
 
 Options:
-  -v, --verbose        Print progress
-  -m, --mode <mode>    Processing mode
-      --count <count>  Number of passes
-  -y, --no-input       Disable all prompts
-      --json           Print machine-readable JSON to stdout
-  -h, --help           Show help, as JSON with --json
+  -v, --verbose          Print progress
+  -m, --mode <mode>      Processing mode
+      --count <count>    Number of passes
+  -i, --inputs <inputs>  Extra input list, named next to the built-in --no-input
+  -y, --no-input         Disable all prompts
+      --json             Print machine-readable JSON to stdout
+  -h, --help             Show help, as JSON with --json
 '
 
 _tbx_usage_error() {
@@ -44,6 +45,7 @@ _tbx_parse() {
   TBX_OPT_VERBOSE=0
   TBX_OPT_MODE='fast'
   TBX_OPT_COUNT=''
+  TBX_OPT_INPUTS=''
   TBX_NO_INPUT=0
   TBX_JSON=0
   local help=0 arg
@@ -74,6 +76,13 @@ _tbx_parse() {
       _tbx_int --count "${arg#*=}"
       TBX_OPT_COUNT=${arg#*=}
       ;;
+    -i | --inputs)
+      _tbx_value "$arg" $#
+      TBX_OPT_INPUTS=$1
+      shift
+      ;;
+    --inputs=*) TBX_OPT_INPUTS=${arg#*=} ;;
+    -i?*) TBX_OPT_INPUTS=${arg:2} ;;
     -y | --no-input) TBX_NO_INPUT=1 ;;
     --json) TBX_JSON=1 ;;
     -h | --help) help=1 ;;

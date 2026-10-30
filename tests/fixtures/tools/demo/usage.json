@@ -5,8 +5,16 @@
   "version": "0.1.0",
   "usage": "demo [options] <src> [dest]",
   "args": [
-    { "name": "src", "summary": "Input file", "required": true },
-    { "name": "dest", "summary": "Output file", "required": false }
+    {
+      "name": "src",
+      "summary": "Input file",
+      "required": true
+    },
+    {
+      "name": "dest",
+      "summary": "Output file",
+      "required": false
+    }
   ],
   "options": [
     {
@@ -28,6 +36,13 @@
       "short": null,
       "summary": "Number of passes",
       "type": "int",
+      "default": null
+    },
+    {
+      "long": "inputs",
+      "short": "i",
+      "summary": "Extra input list, named next to the built-in --no-input",
+      "type": "string",
       "default": null
     },
     {
