@@ -107,6 +107,25 @@ describe('parseManifest', () => {
     expect(parseManifest(toml).options[0]?.long).toBe('force-overwrite-everything');
   });
 
+  it('rejects an option that redefines a built-in flag', () => {
+    expect(fieldPathOf(VALID.replace('long = "force"', 'long = "json"'))).toBe('options.0.long');
+    expect(fieldPathOf(VALID.replace('long = "force"', 'long = "no-input"'))).toBe(
+      'options.0.long',
+    );
+    expect(fieldPathOf(VALID.replace('short = "f"', 'short = "y"'))).toBe('options.0.short');
+    expect(fieldPathOf(VALID.replace('short = "f"', 'short = "h"'))).toBe('options.0.short');
+  });
+
+  it('rejects an option long name with a no- prefix', () => {
+    expect(fieldPathOf(VALID.replace('long = "force"', 'long = "no-color"'))).toBe(
+      'options.0.long',
+    );
+  });
+
+  it('rejects an argument name that is not a lowercase identifier', () => {
+    expect(fieldPathOf(VALID.replace('name = "target"', 'name = "My File"'))).toBe('args.0.name');
+  });
+
   it('rejects a version with a leading zero', () => {
     expect(fieldPathOf(VALID.replace('version = "1.2.3"', 'version = "01.2.3"'))).toBe('version');
   });

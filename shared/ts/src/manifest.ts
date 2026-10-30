@@ -32,8 +32,23 @@ export class ManifestError extends Error {
   }
 }
 
+/**
+ * Flags the generated parsers add to every tool, in help order. A manifest option cannot
+ * reuse their long or short names.
+ */
+export const BUILTIN_OPTIONS: readonly OptSpec[] = [
+  { long: 'no-input', short: 'y', summary: 'Disable all prompts', type: 'bool' },
+  { long: 'json', summary: 'Print machine-readable JSON to stdout', type: 'bool' },
+  { long: 'help', short: 'h', summary: 'Show help, as JSON with --json', type: 'bool' },
+];
+
+const RESERVED_LONGS: ReadonlySet<string> = new Set(BUILTIN_OPTIONS.map((option) => option.long));
+const RESERVED_SHORTS: ReadonlySet<string> = new Set(
+  BUILTIN_OPTIONS.flatMap((option) => option.short ?? []),
+);
+
 const argumentSpecSchema = z.strictObject({
-  name: z.string().min(1),
+  name: z.string().regex(OPTION_PATTERN),
   summary: z.string().min(1),
   required: z.boolean(),
 });
@@ -42,8 +57,16 @@ type OptSpecType = 'bool' | 'string' | 'int';
 
 const optSpecSchema = z
   .strictObject({
-    long: z.string().regex(OPTION_PATTERN),
-    short: z.string().length(1).optional(),
+    long: z
+      .string()
+      .regex(OPTION_PATTERN)
+      .refine((long) => !RESERVED_LONGS.has(long), 'is a built-in flag')
+      .refine((long) => !long.startsWith('no-'), 'must not start with "no-"'),
+    short: z
+      .string()
+      .regex(/^[a-zA-Z0-9]$/)
+      .refine((short) => !RESERVED_SHORTS.has(short), 'is a built-in flag')
+      .optional(),
     summary: z.string().min(1),
     type: z.enum(['bool', 'string', 'int']),
     default: z.union([z.boolean(), z.string(), z.number()]).optional(),
