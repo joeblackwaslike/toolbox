@@ -195,7 +195,7 @@ count_calls() {
 @test "a missing audio file is reported" {
   export STUB_YTDLP_MODE=no_file
   run_tool "$URL"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
   [[ "$stderr" == *"no audio file produced"* ]]
   [ "$(count_calls mlx_whisper)" = "0" ]
 }
@@ -203,7 +203,7 @@ count_calls() {
 @test "a transcription failure aborts before claude" {
   export STUB_WHISPER_MODE=fail
   run_tool "$URL"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
   [[ "$stderr" == *"transcription failed"* ]]
   [ "$(count_calls claude)" = "0" ]
 }
@@ -211,7 +211,7 @@ count_calls() {
 @test "an empty transcript aborts before claude" {
   export STUB_WHISPER_MODE=empty
   run_tool "$URL"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
   [[ "$stderr" == *"empty transcript"* ]]
   [ "$(count_calls claude)" = "0" ]
 }
@@ -312,4 +312,27 @@ count_calls() {
 @test "-y with the url missing exits 2 instead of waiting" {
   run --separate-stderr timeout 20 env PATH="$STUBS:$BASE" TMPDIR="$TMPROOT" "$BASH_BIN" "$TOOL" -y < <(sleep 25)
   [ "$status" -eq 2 ]
+}
+
+@test "both yt-dlp calls pass the url after --" {
+  export STUB_YTDLP_MODE=fail_cookies
+  run_tool "$URL"
+  [ "$status" -eq 0 ]
+  [ "$(grep -F 'yt-dlp[default]' "$LOG" | grep -cF -- "-- $URL" || true)" = "2" ]
+  [ "$(grep -F 'yt-dlp[default]' "$LOG" | grep -cF -- "chrome -- $URL" || true)" = "1" ]
+}
+
+@test "a url starting with a dash is passed after -- and not as an option" {
+  run_tool -- --exec=evil
+  [ "$(grep -F 'yt-dlp[default]' "$LOG" | grep -cF -- " -- --exec=evil" || true)" -ge "1" ]
+  [ "$(grep -F 'yt-dlp[default]' "$LOG" | grep -F -- "--exec=evil" | grep -cvF -- " -- --exec=evil" || true)" = "0" ]
+}
+
+@test "--json without jq exits 69 before any download" {
+  rm -f "$BASE/jq"
+  run_tool "$URL" --json
+  [ "$status" -eq 69 ]
+  [ "$output" = "" ]
+  [[ "$stderr" == *"missing dependency: jq"* ]]
+  [ "$(count_calls yt-dlp)" = "0" ]
 }

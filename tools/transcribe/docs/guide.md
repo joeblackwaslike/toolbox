@@ -12,7 +12,7 @@ Progress and tool noise go to stderr. Stdout holds only the markdown, so `transc
 
 ## Requirements
 
-`uvx`, `ffmpeg`, `deno` and `claude` must be on PATH. The tool checks for all four before it downloads anything. `--json` also needs `jq`.
+`uvx`, `ffmpeg`, `deno` and `claude` must be on PATH. `--json` also needs `jq`. The tool checks for all of them before it downloads anything.
 
 ## Output
 

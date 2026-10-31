@@ -51,9 +51,9 @@ download_audio() {
     --output "$out/audio.%(ext)s"
   )
 
-  "${base[@]}" --cookies-from-browser chrome "$url" >&2 && return 0
+  "${base[@]}" --cookies-from-browser chrome -- "$url" >&2 && return 0
   printf 'retrying without browser cookies\n' >&2
-  "${base[@]}" "$url" >&2
+  "${base[@]}" -- "$url" >&2
 }
 
 # @description Remove one wrapping markdown code fence from stdin; inner fences are kept.
@@ -100,6 +100,9 @@ main() {
   for cmd in uvx ffmpeg deno claude; do
     require "$cmd"
   done
+  if [[ "$TBX_JSON" == "1" ]]; then
+    require jq
+  fi
 
   tmp_dir="$(mktemp -d)"
   trap cleanup EXIT
