@@ -1,0 +1,114 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Command, CommanderError } from 'commander';
+import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
+import { ManifestError } from '../../shared/ts/src/manifest.ts';
+import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
+import { help } from './commands/help.ts';
+import { list } from './commands/list.ts';
+import type { TbxContext } from './context.ts';
+
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** Where `runTbx` works: the repo root and the PATH used for collision checks. */
+export interface TbxEnv {
+  /** Repo root holding `tools/`, `shared/` and `docs/`. */
+  root: string;
+  /** PATH searched for binaries a tool name would shadow; defaults to `process.env.PATH`. */
+  path?: string;
+}
+
+/** Exit code and captured output of one `runTbx` call. */
+export interface TbxResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+interface GlobalFlags {
+  json?: boolean;
+}
+
+type Body = (ctx: TbxContext) => Promise<void>;
+
+function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
+  const program = new Command('tbx')
+    .description('Scaffold, document and inspect the tools in this repo')
+    .option('-y, --no-input', 'Disable all prompts')
+    .option('--json', 'Print machine-readable JSON to stdout')
+    .helpCommand(false)
+    .exitOverride()
+    .configureOutput({
+      writeOut: (text) => {
+        streams.stdout(text);
+      },
+      writeErr: (text) => {
+        streams.stderr(text);
+      },
+    });
+  const run = (command: Command, body: Body): Promise<void> => {
+    const json = command.optsWithGlobals<GlobalFlags>().json === true;
+    const out = createOutput({ json, streams });
+    return body({ root: env.root, path: env.path ?? process.env.PATH ?? '', json, out });
+  };
+  program
+    .command('list')
+    .description('List every tool in tools/')
+    .action((_options: unknown, command: Command) => run(command, list));
+  program
+    .command('help')
+    .description("Print a tool's usage, as JSON with --json")
+    .argument('<tool>', 'Tool name or alias')
+    .action((tool: string, _options: unknown, command: Command) =>
+      run(command, (ctx) => help(ctx, tool)),
+    );
+  return program;
+}
+
+function exitCodeOf(error: unknown, streams: OutputStreams): number {
+  if (error instanceof CommanderError) {
+    return error.exitCode === ExitCode.ok ? ExitCode.ok : ExitCode.usage;
+  }
+  if (error instanceof ToolError || error instanceof ManifestError) {
+    streams.stderr(`error: ${error.message}\n`);
+    return error instanceof ToolError ? error.code : ExitCode.config;
+  }
+  throw error;
+}
+
+async function execute(
+  argv: readonly string[],
+  env: TbxEnv,
+  streams: OutputStreams,
+): Promise<number> {
+  try {
+    await buildProgram(env, streams).parseAsync(argv, { from: 'user' });
+    return ExitCode.ok;
+  } catch (error) {
+    return exitCodeOf(error, streams);
+  }
+}
+
+/**
+ * Runs `tbx` with `argv` (no program name) against `env.root` and returns the exit code with
+ * the captured stdout and stderr, instead of writing to the process streams or exiting. Usage
+ * errors and unknown flags exit 2; a `ToolError` exits with its code; an invalid manifest
+ * exits 78.
+ */
+export async function runTbx(argv: string[], env: TbxEnv): Promise<TbxResult> {
+  let stdout = '';
+  let stderr = '';
+  const code = await execute(argv, env, {
+    stdout: (text) => {
+      stdout += text;
+    },
+    stderr: (text) => {
+      stderr += text;
+    },
+  });
+  return { code, stdout, stderr };
+}
+
+if (import.meta.main) {
+  process.exitCode = await execute(process.argv.slice(2), { root: REPO_ROOT }, PROCESS_STREAMS);
+}
