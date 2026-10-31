@@ -107,15 +107,21 @@ export function unitFiles(m: ToolManifest, binPath: string, home: string): [stri
     : [service];
 }
 
+/**
+ * Validates the unit rendered for `stagedBin`, then writes the files rendered for `binPath`.
+ * `systemd-analyze verify` rejects an ExecStart that does not exist, and the managed bin link
+ * at `binPath` only appears at activation; the two renderings differ only in that path.
+ */
 async function renderUnits(
   m: ToolManifest,
   stage: string,
+  stagedBin: string,
   binPath: string,
   options: StageOptions,
 ): Promise<void> {
   if (m.unit === undefined) return;
   const files = unitFiles(m, binPath, options.home);
-  const [primary] = files;
+  const [primary] = unitFiles(m, stagedBin, options.home);
   const result = await validateUnit(
     CURRENT_PLATFORM === 'macos' ? 'launchd' : 'systemd',
     primary?.[1] ?? '',
@@ -165,6 +171,6 @@ export async function stageArtifact(
   await chmod(bin, EXECUTABLE);
   await writeFile(path.join(stage, MANIFEST_FILE), toml, { flag: 'wx', mode: READABLE });
   await writeFile(path.join(stage, ARTIFACT_MARKER), `${entry.sha256}\n`, { flag: 'wx' });
-  await renderUnits(m, stage, binPath, options);
+  await renderUnits(m, stage, bin, binPath, options);
   return m;
 }
