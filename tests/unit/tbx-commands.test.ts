@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
 import {
   access,
   chmod,
@@ -20,7 +21,7 @@ import { RESERVED_COMMANDS, loadManifest } from '../../shared/ts/src/manifest.ts
 import { isEntryPoint, runTbx } from '../../tbx/src/index.ts';
 import { REPO, fixtureRoot, scaffoldRoot } from '../helpers/roots.ts';
 
-const NO_PATH = { path: '', vars: {} };
+const NO_PATH = { path: '', vars: { HOME: mkdtempSync(join(tmpdir(), 'tbx-home-')) } };
 const EXECUTABLE = 0o755;
 
 type SharedHitJson = Record<string, string>;
@@ -32,7 +33,35 @@ async function missing(file: string): Promise<boolean> {
   );
 }
 
+async function homeWithState(state: string): Promise<Record<string, string>> {
+  const home = await mkdtemp(join(tmpdir(), 'tbx-home-'));
+  await mkdir(join(home, '.local/state/tbx'), { recursive: true });
+  await writeFile(join(home, '.local/state/tbx/installed.json'), state);
+  return { HOME: home };
+}
+
 describe('tbx list', () => {
+  it('list reads the install record from the given HOME, never the real one', async () => {
+    const root = await fixtureRoot();
+    const vars = await homeWithState(
+      JSON.stringify({
+        tools: { demo: { version: '9.9.9', installedAt: '2026-10-31T00:00:00Z' } },
+      }),
+    );
+    const result = await runTbx(['list', '--json'], { root, path: '', vars });
+    expect(result.code).toBe(0);
+    const tools = JSON.parse(result.stdout) as { name: string; installed: string | null }[];
+    expect(tools.map((tool) => [tool.name, tool.installed])).toEqual([['demo', '9.9.9']]);
+  });
+
+  it('list exits 78 with a clear message for a corrupt install record', async () => {
+    const root = await fixtureRoot();
+    const vars = await homeWithState('{ not json');
+    const result = await runTbx(['list'], { root, path: '', vars });
+    expect(result).toMatchObject({ code: 78, stdout: '' });
+    expect(result.stderr).toMatch(/^error: .*installed\.json is not a valid install record/);
+  });
+
   it('list --json returns every tool manifest name', async () => {
     const root = await fixtureRoot();
     const result = await runTbx(['list', '--json'], { root, ...NO_PATH });
