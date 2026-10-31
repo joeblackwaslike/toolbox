@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install shell tooling (macOS, brew)
         if: runner.os == 'macOS'
@@ -85,6 +87,9 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
+      - name: Check generated files for drift (just gen-check)
+        run: just gen-check
+
       - name: Lint (just lint)
         run: just lint
 
@@ -93,6 +98,3 @@ jobs:
 
       - name: Verify every tool (tbx verify --all)
         run: pnpm tbx verify --all
-
-      - name: Check generated files for drift (just gen-check)
-        run: just gen-check

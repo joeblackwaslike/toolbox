@@ -39,7 +39,6 @@ export default tseslint.config(
       'unicorn/error-message': 'error',
       'unicorn/catch-error-name': 'error',
       'unicorn/custom-error-definition': 'error',
-      'import-x/no-relative-parent-imports': 'error',
       'import-x/no-cycle': ['error', { maxDepth: 10 }],
       'import-x/order': 'off',
       'import-x/no-duplicates': 'off',
@@ -49,12 +48,6 @@ export default tseslint.config(
       'unicorn/no-null': 'off',
       'unicorn/filename-case': ['error', { case: 'kebabCase', multipleFileExtensions: true }],
       'unicorn/no-process-exit': 'off',
-    },
-  },
-  {
-    files: ['shared/**/*.ts', 'tbx/**/*.ts', 'tools/**/*.ts'],
-    rules: {
-      'import-x/no-relative-parent-imports': 'off',
     },
   },
   {
