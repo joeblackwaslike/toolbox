@@ -6,7 +6,7 @@ import { findOnPath, isWithin } from '../../shared/ts/src/paths.ts';
 /**
  * Commands linked into an isolated environment's PATH when the host PATH has them: a shell
  * toolkit and the interpreters tools run on, plus the POSIX utilities bats-core needs to run
- * a tool's e2e suite (`ln` through `nl`). External services are never on the list; a tool
+ * a tool's e2e suite (`ln` through `date`). External services are never on the list; a tool
  * that calls one stubs it in its own tests.
  */
 export const ALLOWED_COMMANDS = [
@@ -45,6 +45,7 @@ export const ALLOWED_COMMANDS = [
   'uniq',
   'tee',
   'nl',
+  'date',
 ] as const;
 
 /** Proxy every HTTP client should use inside an isolated environment: the discard port, closed. */
