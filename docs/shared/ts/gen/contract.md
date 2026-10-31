@@ -34,7 +34,8 @@ const INTEGER_REJECTED: readonly string[]
 ```
 
 `int` option values every parser must reject with exit 2: one past each bound, a non-ASCII
-digit, a `+` sign, exponent notation, a leading zero and surrounding whitespace.
+digit, a `+` sign, exponent notation, a leading zero, surrounding whitespace and a
+5000-digit number (longer than Python's default int-conversion limit).
 
 ## generateContractTests
 

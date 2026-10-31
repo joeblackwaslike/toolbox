@@ -29,6 +29,7 @@ BUILTIN_OPTIONS: tuple[dict[str, str], ...] = (
 
 _INTEGER_PATTERN = re.compile(r"-?(?:0|[1-9][0-9]*)", re.ASCII)
 _MAX_SAFE_INTEGER = 9007199254740991
+_MAX_INTEGER_DIGITS = len(str(_MAX_SAFE_INTEGER))
 _INTEGER_RULE = (
     "must be an integer from -9007199254740991 to 9007199254740991 in plain ASCII digits"
 )
@@ -63,7 +64,11 @@ class _Integer(click.ParamType[int]):
         if isinstance(value, int):
             return value
         text = str(value)
-        if not _INTEGER_PATTERN.fullmatch(text) or abs(int(text)) > _MAX_SAFE_INTEGER:
+        if (
+            not _INTEGER_PATTERN.fullmatch(text)
+            or len(text.lstrip("-")) > _MAX_INTEGER_DIGITS
+            or abs(int(text)) > _MAX_SAFE_INTEGER
+        ):
             self.fail(_INTEGER_RULE, param, ctx)
         return int(text)
 

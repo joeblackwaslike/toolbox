@@ -10,12 +10,14 @@ const PLACEHOLDERS: Record<UsageOption['type'], string[]> = {
   int: ['1'],
 };
 const UNKNOWN_FLAG = '--tbx-contract-unknown-flag';
+const OVERLONG_DIGITS = 5000;
 
 /** `int` option values every parser must accept: the safe-integer bounds and zero. */
 export const INTEGER_ACCEPTED: readonly string[] = ['9007199254740991', '-9007199254740991', '0'];
 /**
  * `int` option values every parser must reject with exit 2: one past each bound, a non-ASCII
- * digit, a `+` sign, exponent notation, a leading zero and surrounding whitespace.
+ * digit, a `+` sign, exponent notation, a leading zero, surrounding whitespace and a
+ * 5000-digit number (longer than Python's default int-conversion limit).
  */
 export const INTEGER_REJECTED: readonly string[] = [
   '9007199254740992',
@@ -25,6 +27,7 @@ export const INTEGER_REJECTED: readonly string[] = [
   '1e3',
   '007',
   ' 3',
+  '9'.repeat(OVERLONG_DIGITS),
 ];
 
 /**

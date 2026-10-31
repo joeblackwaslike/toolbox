@@ -96,6 +96,16 @@ def test_non_integer_int_option_exits_2(capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_a_5000_digit_int_option_exits_2_without_a_traceback(capsys):
+    code, seen = invoke(["in.txt", "--count", "9" * 5000])
+    assert code == ExitCode.USAGE
+    assert seen == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+    assert "must be an integer from -9007199254740991 to 9007199254740991" in captured.err
+
+
 def test_too_many_arguments_exits_2():
     assert invoke(["a", "b", "c"])[0] == ExitCode.USAGE
 
