@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
 import { type ContractCase, generateContractTests } from '../../shared/ts/src/gen/contract.ts';
 import { type ToolManifest, loadManifest, parseManifest } from '../../shared/ts/src/manifest.ts';
-import { runOpen } from '../helpers/run.ts';
+import { runOpen } from '../../shared/ts/src/run.ts';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));

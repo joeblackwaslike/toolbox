@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type ToolContext, runTool, usageOf } from '../../shared/ts/src/cli.ts';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { type ToolManifest, loadManifest } from '../../shared/ts/src/manifest.ts';
-import { runOpen } from '../helpers/run.ts';
+import { runOpen } from '../../shared/ts/src/run.ts';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
 const DEMO_TS = `${FIXTURES}cli/demo.ts`;
