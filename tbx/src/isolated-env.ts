@@ -4,8 +4,10 @@ import path from 'node:path';
 import { findOnPath } from '../../shared/ts/src/paths.ts';
 
 /**
- * Commands linked into an isolated environment's PATH when the host PATH has them. A tool
- * that needs anything else stubs it in its own tests.
+ * Commands linked into an isolated environment's PATH when the host PATH has them: a shell
+ * toolkit and the interpreters tools run on, plus the POSIX utilities bats-core needs to run
+ * a tool's e2e suite (`ln` through `nl`). External services are never on the list; a tool
+ * that calls one stubs it in its own tests.
  */
 export const ALLOWED_COMMANDS = [
   'sh',
@@ -32,6 +34,17 @@ export const ALLOWED_COMMANDS = [
   'bun',
   'node',
   'script',
+  'ln',
+  'mktemp',
+  'find',
+  'sort',
+  'touch',
+  'head',
+  'tail',
+  'cut',
+  'uniq',
+  'tee',
+  'nl',
 ] as const;
 
 /** A throwaway HOME with its own XDG directories, tbx bin directory and minimal PATH. */

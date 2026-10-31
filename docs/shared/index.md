@@ -10,7 +10,7 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/errors](ts/errors.md) (ExitCode, ToolError)
 - [ts/gen-parser](ts/gen-parser.md) (generateShellParser)
 - [ts/gen/completions](ts/gen/completions.md) (CompletionShell, renderCompletions)
-- [ts/gen/contract](ts/gen/contract.md) (ContractCase, generateContractTests)
+- [ts/gen/contract](ts/gen/contract.md) (CONTRACT_PLACEHOLDER, ContractCase, generateContractTests)
 - [ts/gen/files](ts/gen/files.md) (compareText, GeneratedFile)
 - [ts/gen/index](ts/gen/index.md) (checkDrift, generateAll, loadToolManifests, syncGenerated, undocumentedSymbols, writeGenerated)
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)

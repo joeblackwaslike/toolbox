@@ -20,7 +20,8 @@ const MANIFEST_FILE = 'tool.toml';
 const READABLE = 0o644;
 const REGULAR_FILE = '0';
 const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
-const PLATFORM = process.platform === 'darwin' ? 'macos' : 'linux';
+/** The `platforms` value of the machine this runs on. */
+export const CURRENT_PLATFORM = process.platform === 'darwin' ? 'macos' : 'linux';
 
 /** What `stageArtifact` reads from the install options. */
 export interface StageOptions {
@@ -80,19 +81,26 @@ function artifactManifest(text: string, entry: IndexEntry): ToolManifest {
       ExitCode.config,
     );
   }
-  if (!m.platforms.includes(PLATFORM)) {
+  if (!m.platforms.includes(CURRENT_PLATFORM)) {
     throw new ToolError(
-      `${m.name} does not support ${PLATFORM} (platforms: ${m.platforms.join(', ')})`,
+      `${m.name} does not support ${CURRENT_PLATFORM} (platforms: ${m.platforms.join(', ')})`,
       ExitCode.unavailable,
     );
   }
   return m;
 }
 
-function unitFiles(m: ToolManifest, binPath: string, home: string): [string, string][] {
+/**
+ * Renders the unit files a tool installs on this platform for `binPath` and `home`, as
+ * `[file name, content]` pairs: a launchd plist on macOS; a systemd service, plus a timer for
+ * a `schedule` unit, on Linux.
+ *
+ * @throws {Error} the errors of `renderUnit` (no `[unit]`, or this platform not supported).
+ */
+export function unitFiles(m: ToolManifest, binPath: string, home: string): [string, string][] {
   const label = unitLabel(m);
   const ctx = { binPath, home, label };
-  if (PLATFORM === 'macos') return [[`${label}.plist`, renderUnit(m, 'launchd', ctx)]];
+  if (CURRENT_PLATFORM === 'macos') return [[`${label}.plist`, renderUnit(m, 'launchd', ctx)]];
   const service: [string, string] = [`${label}.service`, renderUnit(m, 'systemd', ctx)];
   return m.unit?.kind === 'schedule'
     ? [service, [`${label}.timer`, renderSystemdTimer(m, ctx)]]
@@ -109,7 +117,7 @@ async function renderUnits(
   const files = unitFiles(m, binPath, options.home);
   const [primary] = files;
   const result = await validateUnit(
-    PLATFORM === 'macos' ? 'launchd' : 'systemd',
+    CURRENT_PLATFORM === 'macos' ? 'launchd' : 'systemd',
     primary?.[1] ?? '',
   );
   if (!result.ok) {

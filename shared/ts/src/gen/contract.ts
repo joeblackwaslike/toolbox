@@ -2,10 +2,11 @@ import { type UsageOption, usageOf } from '../cli.ts';
 import { ExitCode } from '../errors.ts';
 import type { ToolManifest } from '../manifest.ts';
 
-const PLACEHOLDER = 'x';
+/** Value the contract cases pass for every positional argument and string option. */
+export const CONTRACT_PLACEHOLDER = 'x';
 const PLACEHOLDERS: Record<UsageOption['type'], string[]> = {
   bool: [],
-  string: [PLACEHOLDER],
+  string: [CONTRACT_PLACEHOLDER],
   int: ['1'],
 };
 const UNKNOWN_FLAG = '--tbx-contract-unknown-flag';
@@ -36,7 +37,7 @@ function optionCases(option: UsageOption): ContractCase[] {
 function missingCases(m: ToolManifest): ContractCase[] {
   return m.args.flatMap((argument, index) => {
     if (!argument.required) return [];
-    const before = m.args.slice(0, index).map(() => PLACEHOLDER);
+    const before = m.args.slice(0, index).map(() => CONTRACT_PLACEHOLDER);
     return ['-y', '--json'].map((flag) => ({
       name: `missing ${argument.name} with ${flag}`,
       argv: [...before, flag],
@@ -53,7 +54,7 @@ function missingCases(m: ToolManifest): ContractCase[] {
  * body never runs and the cases hold for any tool built from the manifest.
  */
 export function generateContractTests(m: ToolManifest): ContractCase[] {
-  const required = m.args.filter((argument) => argument.required).map(() => PLACEHOLDER);
+  const required = m.args.filter((argument) => argument.required).map(() => CONTRACT_PLACEHOLDER);
   const usageError = (name: string, argv: string[]): ContractCase => ({
     name,
     argv: [...argv, '--help'],
@@ -63,7 +64,10 @@ export function generateContractTests(m: ToolManifest): ContractCase[] {
     ...usageOf(m).options.flatMap((option) => optionCases(option)),
     ...missingCases(m),
     usageError('unknown flag', [...required, UNKNOWN_FLAG]),
-    usageError('too many arguments', [...m.args.map(() => PLACEHOLDER), PLACEHOLDER]),
+    usageError('too many arguments', [
+      ...m.args.map(() => CONTRACT_PLACEHOLDER),
+      CONTRACT_PLACEHOLDER,
+    ]),
     ...m.options
       .filter((option) => option.type === 'int')
       .map((option) => usageError(`non-integer --${option.long}`, [`--${option.long}`, 'many'])),
