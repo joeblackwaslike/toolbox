@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isErrnoException } from '../errors.ts';
 import { ManifestError, loadManifest } from '../manifest.ts';
@@ -175,9 +175,26 @@ async function toolDirectories(root: string): Promise<string[]> {
   }
   const directories: string[] = [];
   for (const entry of entries) {
-    if (await isDirectory(path.join(root, 'tools', entry))) directories.push(entry);
+    const info = await lstat(path.join(root, 'tools', entry));
+    if (info.isDirectory()) directories.push(entry);
   }
   return directories;
+}
+
+/**
+ * True when `file` is a regular file reached without any symlink below `root`, so a stale-file
+ * deletion can never land outside the generated roots.
+ */
+async function isPlainFile(root: string, file: string): Promise<boolean> {
+  try {
+    const info = await lstat(file);
+    if (!info.isFile()) return false;
+    const [realFile, realRoot] = await Promise.all([realpath(file), realpath(root)]);
+    return realFile === path.join(realRoot, path.relative(root, file));
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 async function markedToolFiles(root: string, tool: string): Promise<string[]> {
@@ -187,6 +204,7 @@ async function markedToolFiles(root: string, tool: string): Promise<string[]> {
   ];
   const marked: string[] = [];
   for (const file of candidates) {
+    if (!(await isPlainFile(root, file))) continue;
     const text = await readIfPresent(file);
     if (text !== null && hasMarker(text)) marked.push(path.relative(root, file));
   }
@@ -199,7 +217,7 @@ async function existingGenerated(root: string): Promise<string[]> {
     if ((await readIfPresent(path.join(root, file))) !== null) present.push(file);
   }
   for (const file of await filesBelow(path.join(root, 'docs/shared'))) {
-    present.push(path.relative(root, file));
+    if (await isPlainFile(root, file)) present.push(path.relative(root, file));
   }
   for (const tool of await toolDirectories(root))
     present.push(...(await markedToolFiles(root, tool)));
@@ -216,7 +234,8 @@ async function staleFiles(root: string, files: GeneratedFile[]): Promise<string[
  * Writes `generateAll(root)` and deletes stale generated files that are no longer produced:
  * anything under `docs/shared/`, and a `tools/<dir>/README.md` or `tools/<dir>/completions/*`
  * whose first three lines carry `GENERATED_MARKER` (so a removed tool's generated files go, and
- * hand-written files stay). Files outside those roots are never touched. Returns the deleted
+ * hand-written files stay). A file reached through a symlink is never a candidate, and files
+ * outside those roots are never touched. Returns the deleted
  * paths.
  *
  * @throws {ManifestError} before writing anything when a manifest is unreadable or invalid.

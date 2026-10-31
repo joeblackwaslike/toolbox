@@ -44,7 +44,8 @@ async function syncGenerated(root: string): Promise<string[]>
 Writes `generateAll(root)` and deletes stale generated files that are no longer produced:
 anything under `docs/shared/`, and a `tools/<dir>/README.md` or `tools/<dir>/completions/*`
 whose first three lines carry `GENERATED_MARKER` (so a removed tool's generated files go, and
-hand-written files stay). Files outside those roots are never touched. Returns the deleted
+hand-written files stay). A file reached through a symlink is never a candidate, and files
+outside those roots are never touched. Returns the deleted
 paths.
 
 - @throws {ManifestError} before writing anything when a manifest is unreadable or invalid.

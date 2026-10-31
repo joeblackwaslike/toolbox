@@ -165,12 +165,30 @@ export async function writeState(paths: TbxPaths, state: InstallState): Promise<
 export interface LockHooks {
   /** Awaited after a lock was judged stale and before it is claimed. */
   beforeStaleClaim?: () => Promise<void>;
+  /** Awaited after the lock file was created and before the body runs. */
+  afterAcquire?: () => Promise<void>;
 }
 
 const lockOwnerSchema = z.object({ pid: z.number().int(), createdAt: z.string() });
 
-/** Lock bodies held by a running `withLock` body in this process. */
+/**
+ * Lock bodies this process holds or is creating, added before the lock file exists so a
+ * same-process waiter never sees our own lock without its entry. The set is per isolate: worker
+ * threads that share a pid are not supported (tbx uses none).
+ */
 const HELD_LOCKS = new Set<string>();
+
+async function tryAcquireHeld(file: string, body: string): Promise<boolean> {
+  HELD_LOCKS.add(body);
+  try {
+    if (await tryAcquire(file, body)) return true;
+  } catch (error) {
+    HELD_LOCKS.delete(body);
+    throw error;
+  }
+  HELD_LOCKS.delete(body);
+  return false;
+}
 
 type LockOwner = z.infer<typeof lockOwnerSchema>;
 
@@ -272,7 +290,7 @@ async function acquire(file: string, timeoutMs: number, hooks: LockHooks): Promi
   const deadline = Date.now() + timeoutMs;
   let wait = LOCK_POLL_START_MS;
   for (;;) {
-    if (await tryAcquire(file, body)) return body;
+    if (await tryAcquireHeld(file, body)) return body;
     const owner = await removeIfStale(file, hooks);
     if (owner === null) continue;
     if (Date.now() >= deadline) {
@@ -316,8 +334,8 @@ export async function withLock<T>(
   hooks: LockHooks = {},
 ): Promise<T> {
   const mine = await acquire(file, timeoutMs, hooks);
-  HELD_LOCKS.add(mine);
   try {
+    await hooks.afterAcquire?.();
     return await body();
   } finally {
     HELD_LOCKS.delete(mine);

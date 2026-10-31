@@ -94,6 +94,48 @@ describe('a lock left behind by this process', () => {
     await expect(withLock(file, () => Promise.resolve('ran'), 300)).resolves.toBe('ran');
   });
 
+  it('a same-process waiter cannot take over between creating the lock and running the body', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
+    const file = join(dir, 'install.lock');
+    const order: string[] = [];
+    let resume: () => void = () => undefined;
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let reached: () => void = () => undefined;
+    const atWindow = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const first = withLock(
+      file,
+      async () => {
+        order.push('first start');
+        await delay(50);
+        order.push('first end');
+      },
+      3000,
+      {
+        afterAcquire: async () => {
+          reached();
+          await paused;
+        },
+      },
+    );
+    await atWindow;
+    const second = withLock(
+      file,
+      () => {
+        order.push('second');
+        return Promise.resolve();
+      },
+      3000,
+    );
+    await delay(200);
+    resume();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first start', 'first end', 'second']);
+  });
+
   it('still makes a second caller in this process wait for a body that holds it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
     const file = join(dir, 'install.lock');
