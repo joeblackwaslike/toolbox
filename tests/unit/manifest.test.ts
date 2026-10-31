@@ -187,6 +187,16 @@ default = true
     expect(fieldPathOf(VALID.replace('alias = "g"', `alias = "${word}"`))).toBe('alias');
   });
 
+  it.each(['9007199254740992', '-9007199254740992'])('rejects the int default %s', (value) => {
+    const toml = `${VALID}\n[[options]]\nlong = "count"\nsummary = "Passes"\ntype = "int"\ndefault = ${value}\n`;
+    expect(() => parseManifest(toml)).toThrow(ManifestError);
+  });
+
+  it('accepts the largest safe int default', () => {
+    const toml = `${VALID}\n[[options]]\nlong = "count"\nsummary = "Passes"\ntype = "int"\ndefault = 9007199254740991\n`;
+    expect(parseManifest(toml).options[1]?.default).toBe(9_007_199_254_740_991);
+  });
+
   it('rejects two options with the same long name', () => {
     const toml = `${VALID}\n[[options]]\nlong = "force"\nsummary = "Again"\ntype = "bool"\n`;
     expect(() => parseManifest(toml)).toThrow(/options\.1\.long.*duplicate/);

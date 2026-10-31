@@ -20,6 +20,23 @@ Flags the generated parsers add to every tool, in help order. A manifest option 
 reuse their long or short names, nor the positive form of a `no-` built-in (`input`),
 which Commander would pair with it into one negatable option.
 
+## INTEGER_PATTERN
+
+```ts
+const INTEGER_PATTERN
+```
+
+The text of every `int` option value the generated parsers accept: ASCII decimal digits, an
+optional leading `-`, no `+`, no whitespace and no leading zeros.
+
+## INTEGER_RULE
+
+```ts
+const INTEGER_RULE
+```
+
+What every parser says when an `int` value is outside `INTEGER_PATTERN` or the safe range.
+
 ## ManifestError
 
 ```ts
@@ -118,6 +135,15 @@ async function loadManifest(path: string): Promise<ToolManifest>
 Reads and validates a `tool.toml` from disk.
 
 - @throws {ManifestError} when the file cannot be read or is invalid; the message names `path`.
+
+## parseIntegerText
+
+```ts
+function parseIntegerText(text: string): number | null
+```
+
+Parses an `int` option value: `INTEGER_PATTERN` and at most `Number.MAX_SAFE_INTEGER` in
+magnitude, so no parser rounds it. Returns `null` for anything else.
 
 ## parseManifest
 

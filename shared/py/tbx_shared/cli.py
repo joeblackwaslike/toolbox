@@ -27,7 +27,12 @@ BUILTIN_OPTIONS: tuple[dict[str, str], ...] = (
 )
 """Flags every tool gets, in help order; mirrors ``BUILTIN_OPTIONS`` in ``manifest.ts``."""
 
-_INTEGER_PATTERN = re.compile(r"-?\d+")
+_INTEGER_PATTERN = re.compile(r"-?(?:0|[1-9][0-9]*)", re.ASCII)
+_MAX_SAFE_INTEGER = 9007199254740991
+_INTEGER_RULE = (
+    "must be an integer from -9007199254740991 to 9007199254740991 in plain ASCII digits"
+)
+"""What every parser says about a bad ``int`` value; mirrors ``INTEGER_RULE`` in ``manifest.ts``."""
 _BUILTIN_NAMES = {"no-input": "no_input", "json": "json_mode", "help": "show_help"}
 
 
@@ -57,9 +62,10 @@ class _Integer(click.ParamType[int]):
     def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> int:
         if isinstance(value, int):
             return value
-        if not _INTEGER_PATTERN.fullmatch(str(value)):
-            self.fail("must be an integer", param, ctx)
-        return int(value)
+        text = str(value)
+        if not _INTEGER_PATTERN.fullmatch(text) or abs(int(text)) > _MAX_SAFE_INTEGER:
+            self.fail(_INTEGER_RULE, param, ctx)
+        return int(text)
 
 
 def _options(manifest: Manifest) -> list[Mapping[str, Any]]:

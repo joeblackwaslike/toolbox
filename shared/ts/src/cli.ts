@@ -4,14 +4,15 @@ import { ExitCode, ToolError, errorLines } from './errors.ts';
 import {
   type ArgSpec,
   BUILTIN_OPTIONS,
+  INTEGER_RULE,
   ManifestError,
   type OptSpec,
   type ToolManifest,
+  parseIntegerText,
 } from './manifest.ts';
 import { type Output, createOutput } from './output.ts';
 
 const STDIN_FD = 0;
-const INTEGER_PATTERN = /^-?\d+$/;
 
 /** A parsed option value: `bool` options give booleans, `int` numbers, `string` strings. */
 export type OptionValue = string | number | boolean;
@@ -80,10 +81,9 @@ export function usageOf(m: ToolManifest): ToolUsage {
 }
 
 function parseInteger(value: string): number {
-  if (!INTEGER_PATTERN.test(value)) {
-    throw new InvalidArgumentError('must be an integer');
-  }
-  return Number(value);
+  const parsed = parseIntegerText(value);
+  if (parsed === null) throw new InvalidArgumentError(INTEGER_RULE);
+  return parsed;
 }
 
 function toCommanderOption(spec: OptSpec): Option {

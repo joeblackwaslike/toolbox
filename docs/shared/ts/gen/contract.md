@@ -19,6 +19,23 @@ interface ContractCase
 One interface check for a built tool: run it with `argv`, expect exit code `expectExit`,
 and, when `expectStdout` is `'json'`, expect stdout to be a single valid JSON document.
 
+## INTEGER_ACCEPTED
+
+```ts
+const INTEGER_ACCEPTED: readonly string[]
+```
+
+`int` option values every parser must accept: the safe-integer bounds and zero.
+
+## INTEGER_REJECTED
+
+```ts
+const INTEGER_REJECTED: readonly string[]
+```
+
+`int` option values every parser must reject with exit 2: one past each bound, a non-ASCII
+digit, a `+` sign, exponent notation, a leading zero and surrounding whitespace.
+
 ## generateContractTests
 
 ```ts
@@ -27,6 +44,6 @@ function generateContractTests(m: ToolManifest): ContractCase[]
 
 Generates the interface contract for a manifest: every documented option and short form
 (including `-y`/`--no-input`, `--json` and `-h`/`--help`), each missing required argument
-under `-y` and under `--json`, an unknown flag, too many arguments and a non-integer value
-for each `int` option. Every case either fails parsing or ends at `--help`, so the tool
+under `-y` and under `--json`, an unknown flag, too many arguments, and for each `int` option
+a non-integer value plus every `INTEGER_ACCEPTED` and `INTEGER_REJECTED` value. Every case either fails parsing or ends at `--help`, so the tool
 body never runs and the cases hold for any tool built from the manifest.

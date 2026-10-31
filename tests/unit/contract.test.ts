@@ -3,8 +3,18 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
-import { type ContractCase, generateContractTests } from '../../shared/ts/src/gen/contract.ts';
-import { type ToolManifest, loadManifest, parseManifest } from '../../shared/ts/src/manifest.ts';
+import {
+  type ContractCase,
+  INTEGER_ACCEPTED,
+  INTEGER_REJECTED,
+  generateContractTests,
+} from '../../shared/ts/src/gen/contract.ts';
+import {
+  INTEGER_RULE,
+  type ToolManifest,
+  loadManifest,
+  parseManifest,
+} from '../../shared/ts/src/manifest.ts';
 import { runOpen } from '../../shared/ts/src/run.ts';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
@@ -56,6 +66,25 @@ describe('generateContractTests', () => {
       expectExit: 2,
     });
     expect(cases.find((c) => c.name === 'option --json')).toMatchObject({ expectStdout: 'json' });
+  });
+
+  it('covers every integer boundary value for each int option', () => {
+    expect(INTEGER_ACCEPTED).toEqual(
+      expect.arrayContaining(['9007199254740991', '-9007199254740991', '0']),
+    );
+    expect(INTEGER_REJECTED).toEqual(
+      expect.arrayContaining([
+        '9007199254740992',
+        '-9007199254740992',
+        '\u0663',
+        '+3',
+        '1e3',
+        '007',
+      ]),
+    );
+    const names = cases.map((c) => c.name);
+    for (const value of INTEGER_ACCEPTED) expect(names).toContain(`--count accepts ${value}`);
+    for (const value of INTEGER_REJECTED) expect(names).toContain(`--count rejects ${value}`);
   });
 
   it('never lets a case reach the tool body', () => {
@@ -124,6 +153,38 @@ describe('cross-language parity', () => {
         opts: { verbose: false, mode: 'fast' },
       });
       expect(JSON.parse(omitted.stdout).opts, language).not.toHaveProperty('inputs');
+    }
+  });
+
+  it('all three languages keep the largest safe integer exactly and reject the next one', async () => {
+    for (const [language, command, prefix] of LANGUAGES) {
+      const max = await runOpen(command, [
+        ...prefix,
+        'in.txt',
+        '--count',
+        '9007199254740991',
+        '--json',
+      ]);
+      expect({
+        language,
+        count: (JSON.parse(max.stdout) as { opts: { count: number } }).opts.count,
+      }).toEqual({
+        language,
+        count: 9_007_199_254_740_991,
+      });
+      const over = await runOpen(command, [
+        ...prefix,
+        'in.txt',
+        '--count',
+        '9007199254740992',
+        '--json',
+      ]);
+      expect({ language, status: over.status, stdout: over.stdout }).toEqual({
+        language,
+        status: 2,
+        stdout: '',
+      });
+      expect(over.stderr, language).toContain(INTEGER_RULE);
     }
   });
 

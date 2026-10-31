@@ -1,7 +1,9 @@
 import { usageOf } from '../ts/src/cli.ts';
-import type { OptSpec, ToolManifest } from '../ts/src/manifest.ts';
+import { INTEGER_RULE, type OptSpec, type ToolManifest } from '../ts/src/manifest.ts';
 
 const HELP_GAP = 2;
+const MAX_TEXT = String(Number.MAX_SAFE_INTEGER);
+const MAX_DIGITS = MAX_TEXT.length;
 
 const ESCAPED_QUOTE = String.raw`'\''`;
 
@@ -150,8 +152,11 @@ export function generateShellParser(m: ToolManifest): string {
     '}',
     '',
     '_tbx_int() {',
-    "  local pattern='^-?[0-9]+$'",
-    `  [[ $2 =~ $pattern ]] || _tbx_usage_error "option '$1' must be an integer"`,
+    `  local pattern='^-?(0|[1-9][0-9]*)$' digits=\${2#-} max=${MAX_TEXT}`,
+    `  [[ $2 =~ $pattern ]] || _tbx_usage_error "option '$1' ${INTEGER_RULE}"`,
+    `  if ((\${#digits} > ${MAX_DIGITS})) || ((digits > max)); then`,
+    `    _tbx_usage_error "option '$1' ${INTEGER_RULE}"`,
+    '  fi',
     '}',
     '',
     ...parseFunction(m),

@@ -11,6 +11,22 @@ const PLACEHOLDERS: Record<UsageOption['type'], string[]> = {
 };
 const UNKNOWN_FLAG = '--tbx-contract-unknown-flag';
 
+/** `int` option values every parser must accept: the safe-integer bounds and zero. */
+export const INTEGER_ACCEPTED: readonly string[] = ['9007199254740991', '-9007199254740991', '0'];
+/**
+ * `int` option values every parser must reject with exit 2: one past each bound, a non-ASCII
+ * digit, a `+` sign, exponent notation, a leading zero and surrounding whitespace.
+ */
+export const INTEGER_REJECTED: readonly string[] = [
+  '9007199254740992',
+  '-9007199254740992',
+  '\u0663',
+  '+3',
+  '1e3',
+  '007',
+  ' 3',
+];
+
 /**
  * One interface check for a built tool: run it with `argv`, expect exit code `expectExit`,
  * and, when `expectStdout` is `'json'`, expect stdout to be a single valid JSON document.
@@ -46,11 +62,28 @@ function missingCases(m: ToolManifest): ContractCase[] {
   });
 }
 
+function integerCases(option: { long: string }): ContractCase[] {
+  const flag = `--${option.long}`;
+  return [
+    { name: `non-integer ${flag}`, argv: [flag, 'many', '--help'], expectExit: ExitCode.usage },
+    ...INTEGER_ACCEPTED.map((value) => ({
+      name: `${flag} accepts ${value}`,
+      argv: [flag, value, '--help'],
+      expectExit: ExitCode.ok,
+    })),
+    ...INTEGER_REJECTED.map((value) => ({
+      name: `${flag} rejects ${value}`,
+      argv: [flag, value, '--help'],
+      expectExit: ExitCode.usage,
+    })),
+  ];
+}
+
 /**
  * Generates the interface contract for a manifest: every documented option and short form
  * (including `-y`/`--no-input`, `--json` and `-h`/`--help`), each missing required argument
- * under `-y` and under `--json`, an unknown flag, too many arguments and a non-integer value
- * for each `int` option. Every case either fails parsing or ends at `--help`, so the tool
+ * under `-y` and under `--json`, an unknown flag, too many arguments, and for each `int` option
+ * a non-integer value plus every `INTEGER_ACCEPTED` and `INTEGER_REJECTED` value. Every case either fails parsing or ends at `--help`, so the tool
  * body never runs and the cases hold for any tool built from the manifest.
  */
 export function generateContractTests(m: ToolManifest): ContractCase[] {
@@ -70,6 +103,6 @@ export function generateContractTests(m: ToolManifest): ContractCase[] {
     ]),
     ...m.options
       .filter((option) => option.type === 'int')
-      .map((option) => usageError(`non-integer --${option.long}`, [`--${option.long}`, 'many'])),
+      .flatMap((option) => integerCases(option)),
   ];
 }

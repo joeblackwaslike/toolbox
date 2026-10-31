@@ -14,6 +14,25 @@ const SEMVER_PATTERN = new RegExp(
     `(?:-${SEMVER_PRERELEASE_ID}(?:\\.${SEMVER_PRERELEASE_ID})*)?` +
     `(?:\\+${SEMVER_BUILD_ID}(?:\\.${SEMVER_BUILD_ID})*)?$`,
 );
+/**
+ * The text of every `int` option value the generated parsers accept: ASCII decimal digits, an
+ * optional leading `-`, no `+`, no whitespace and no leading zeros.
+ */
+export const INTEGER_PATTERN = /^-?(?:0|[1-9]\d*)$/;
+/** What every parser says when an `int` value is outside `INTEGER_PATTERN` or the safe range. */
+export const INTEGER_RULE =
+  'must be an integer from -9007199254740991 to 9007199254740991 in plain ASCII digits';
+
+/**
+ * Parses an `int` option value: `INTEGER_PATTERN` and at most `Number.MAX_SAFE_INTEGER` in
+ * magnitude, so no parser rounds it. Returns `null` for anything else.
+ */
+export function parseIntegerText(text: string): number | null {
+  if (!INTEGER_PATTERN.test(text)) return null;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
 const MAX_SUMMARY_LENGTH = 80;
 const MAX_FIELD_SUMMARY_LENGTH = 200;
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -118,7 +137,7 @@ const optSpecSchema = z
     const checks: Record<OptSpecType, (value: unknown) => boolean> = {
       bool: (value) => typeof value === 'boolean',
       string: (value) => typeof value === 'string',
-      int: (value) => Number.isInteger(value),
+      int: (value) => Number.isSafeInteger(value),
     };
     if (!checks[opt.type](opt.default)) {
       ctx.addIssue({

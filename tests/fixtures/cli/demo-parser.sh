@@ -37,8 +37,11 @@ _tbx_value() {
 }
 
 _tbx_int() {
-  local pattern='^-?[0-9]+$'
-  [[ $2 =~ $pattern ]] || _tbx_usage_error "option '$1' must be an integer"
+  local pattern='^-?(0|[1-9][0-9]*)$' digits=${2#-} max=9007199254740991
+  [[ $2 =~ $pattern ]] || _tbx_usage_error "option '$1' must be an integer from -9007199254740991 to 9007199254740991 in plain ASCII digits"
+  if ((${#digits} > 16)) || ((digits > max)); then
+    _tbx_usage_error "option '$1' must be an integer from -9007199254740991 to 9007199254740991 in plain ASCII digits"
+  fi
 }
 
 _tbx_parse() {
