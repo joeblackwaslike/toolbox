@@ -419,12 +419,12 @@ describe('llms.txt', () => {
     const root = await tempRoot();
     await put(root, 'shared/sh/z.sh', '# @description Hi.\nz_hi() {\n  :\n}\n');
     const llms = (await generateAll(root)).find((f) => f.path === 'docs/llms.txt')?.content ?? '';
-    expect(llms).toContain('- [Tool catalog](docs/catalog.md): ');
-    expect(llms).toContain('- [Shared modules](docs/shared/index.md): ');
+    expect(llms).toContain('- [Tool catalog](catalog.md): ');
+    expect(llms).toContain('- [Shared modules](shared/index.md): ');
     expect(llms).toContain(
-      '- [demo](tools/demo/README.md): Demo tool for parser and generator tests',
+      '- [demo](../tools/demo/README.md): Demo tool for parser and generator tests',
     );
-    expect(llms).toContain('- [sh/z](docs/shared/sh/z.md): z_hi');
+    expect(llms).toContain('- [sh/z](shared/sh/z.md): z_hi');
     expect(llms).not.toContain('\n\n\n');
   });
 
@@ -433,5 +433,37 @@ describe('llms.txt', () => {
     const llms = (await generateAll(root)).find((f) => f.path === 'docs/llms.txt')?.content ?? '';
     expect(llms).not.toContain('## Tools');
     expect(llms).not.toContain('\n\n\n');
+  });
+});
+
+const LINK = /\]\(([^)\s]+)\)/g;
+
+async function brokenLinks(root: string): Promise<string[]> {
+  const broken: string[] = [];
+  for (const file of await generateAll(root)) {
+    if (!/\.(md|txt)$/.test(file.path)) continue;
+    for (const [, target = ''] of file.content.matchAll(LINK)) {
+      if (/^[a-z]+:/.test(target) || target.startsWith('#')) continue;
+      const resolved = join(root, dirname(file.path), target.split('#')[0] ?? '');
+      const found = await readFile(resolved).then(
+        () => true,
+        () => false,
+      );
+      if (!found) broken.push(`${file.path} -> ${target}`);
+    }
+  }
+  return broken;
+}
+
+describe('generated links', () => {
+  it('every relative link in the demo root resolves from its own file', async () => {
+    const root = await tempRoot();
+    await put(root, 'shared/sh/z.sh', '# @description Hi.\nz_hi() {\n  :\n}\n');
+    await syncGenerated(root);
+    expect(await brokenLinks(root)).toEqual([]);
+  });
+
+  it('every relative link in the repo resolves from its own file', async () => {
+    expect(await brokenLinks(join(import.meta.dirname, '../..'))).toEqual([]);
   });
 });

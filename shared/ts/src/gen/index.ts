@@ -79,10 +79,10 @@ function section(title: string, entries: string[]): string[] {
 function renderLlms(ms: ToolManifest[], mods: SharedModuleDoc[]): string {
   const tools = [...ms]
     .sort((a, b) => compareText(a.name, b.name))
-    .map((m) => `- [${m.name}](tools/${m.name}/README.md): ${m.summary}`);
+    .map((m) => `- [${m.name}](../tools/${m.name}/README.md): ${m.summary}`);
   const shared = mods.map(
     (mod) =>
-      `- [${mod.lang}/${mod.module}](docs/shared/${mod.lang}/${mod.module}.md): ${mod.symbols.map((symbol) => symbol.name).join(', ')}`,
+      `- [${mod.lang}/${mod.module}](shared/${mod.lang}/${mod.module}.md): ${mod.symbols.map((symbol) => symbol.name).join(', ')}`,
   );
   return [
     '# tbx',
@@ -90,8 +90,8 @@ function renderLlms(ms: ToolManifest[], mods: SharedModuleDoc[]): string {
     '> A toolbox of small command line tools with shared runtime helpers.',
     '',
     ...section('Docs', [
-      '- [Tool catalog](docs/catalog.md): every tool with its alias, language and summary',
-      '- [Shared modules](docs/shared/index.md): helpers every tool reuses',
+      '- [Tool catalog](catalog.md): every tool with its alias, language and summary',
+      '- [Shared modules](shared/index.md): helpers every tool reuses',
     ]),
     ...section('Tools', tools),
     ...section('Shared modules', shared),

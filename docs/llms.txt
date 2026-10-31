@@ -4,32 +4,32 @@
 
 ## Docs
 
-- [Tool catalog](docs/catalog.md): every tool with its alias, language and summary
-- [Shared modules](docs/shared/index.md): helpers every tool reuses
+- [Tool catalog](catalog.md): every tool with its alias, language and summary
+- [Shared modules](shared/index.md): helpers every tool reuses
 
 ## Tools
 
-- [transcribe](tools/transcribe/README.md): Turn a video URL into a clean markdown transcript
+- [transcribe](../tools/transcribe/README.md): Turn a video URL into a clean markdown transcript
 
 ## Shared modules
 
-- [py/cli](docs/shared/py/cli.md): ToolContext, build_command, define_tool, load_manifest, run_tool, usage_of
-- [ts/cli](docs/shared/ts/cli.md): OptionValue, ToolContext, ToolRun, ToolUsage, UsageOption, defineTool, reportError, runTool, usageOf
-- [py/errors](docs/shared/py/errors.md): ExitCode, ToolError
-- [ts/errors](docs/shared/ts/errors.md): ExitCode, ToolError, errorLines, isErrnoException, messageOf
-- [ts/gen-parser](docs/shared/ts/gen-parser.md): generateShellParser
-- [ts/gen/completions](docs/shared/ts/gen/completions.md): CompletionShell, renderCompletions
-- [ts/gen/contract](docs/shared/ts/gen/contract.md): CONTRACT_PLACEHOLDER, ContractCase, INTEGER_ACCEPTED, INTEGER_REJECTED, generateContractTests
-- [ts/gen/files](docs/shared/ts/gen/files.md): GENERATED_MARKER, GeneratedFile, compareText
-- [ts/gen/index](docs/shared/ts/gen/index.md): checkDrift, generateAll, loadToolManifests, syncGenerated, undocumentedSymbols, writeGenerated
-- [ts/gen/readme](docs/shared/ts/gen/readme.md): ReadmeOptions, renderCatalog, renderToolReadme
-- [ts/gen/shared-docs](docs/shared/ts/gen/shared-docs.md): DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs
-- [ts/gen/unit](docs/shared/ts/gen/unit.md): UnitContext, UnitKind, UnitValidation, VALIDATOR_TIMEOUT_MS, renderSystemdTimer, renderUnit, unitLabel, validateUnit
-- [sh/lib](docs/shared/sh/lib.md): tbx_die, tbx_error, tbx_info, tbx_result, tbx_result_json
-- [ts/manifest](docs/shared/ts/manifest.md): ArgSpec, BUILTIN_OPTIONS, INTEGER_PATTERN, INTEGER_RULE, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseIntegerText, parseManifest
-- [py/output](docs/shared/py/output.md): Output
-- [ts/output](docs/shared/ts/output.md): Output, OutputStreams, PROCESS_STREAMS, createOutput
-- [ts/paths](docs/shared/ts/paths.md): EXECUTABLE_MODE, PRIVATE_DIR_MODE, PathBinary, PathEnv, READABLE_MODE, binariesOnPath, findOnPath, isWithin, tbxBinDir, xdgBaseDir
-- [ts/pty](docs/shared/ts/pty.md): PtyOptions, PtyResult, runInPty
-- [py/retry](docs/shared/py/retry.md): retry_policy, with_retry
-- [ts/run](docs/shared/ts/run.md): CapturedOutput, CommandError, MAX_CAPTURE_BYTES, RunOptions, RunResult, captureOutput, runBounded, runOpen, signalGroup
+- [py/cli](shared/py/cli.md): ToolContext, build_command, define_tool, load_manifest, run_tool, usage_of
+- [ts/cli](shared/ts/cli.md): OptionValue, ToolContext, ToolRun, ToolUsage, UsageOption, defineTool, reportError, runTool, usageOf
+- [py/errors](shared/py/errors.md): ExitCode, ToolError
+- [ts/errors](shared/ts/errors.md): ExitCode, ToolError, errorLines, isErrnoException, messageOf
+- [ts/gen-parser](shared/ts/gen-parser.md): generateShellParser
+- [ts/gen/completions](shared/ts/gen/completions.md): CompletionShell, renderCompletions
+- [ts/gen/contract](shared/ts/gen/contract.md): CONTRACT_PLACEHOLDER, ContractCase, INTEGER_ACCEPTED, INTEGER_REJECTED, generateContractTests
+- [ts/gen/files](shared/ts/gen/files.md): GENERATED_MARKER, GeneratedFile, compareText
+- [ts/gen/index](shared/ts/gen/index.md): checkDrift, generateAll, loadToolManifests, syncGenerated, undocumentedSymbols, writeGenerated
+- [ts/gen/readme](shared/ts/gen/readme.md): ReadmeOptions, renderCatalog, renderToolReadme
+- [ts/gen/shared-docs](shared/ts/gen/shared-docs.md): DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs
+- [ts/gen/unit](shared/ts/gen/unit.md): UnitContext, UnitKind, UnitValidation, VALIDATOR_TIMEOUT_MS, renderSystemdTimer, renderUnit, unitLabel, validateUnit
+- [sh/lib](shared/sh/lib.md): tbx_die, tbx_error, tbx_info, tbx_result, tbx_result_json
+- [ts/manifest](shared/ts/manifest.md): ArgSpec, BUILTIN_OPTIONS, INTEGER_PATTERN, INTEGER_RULE, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseIntegerText, parseManifest
+- [py/output](shared/py/output.md): Output
+- [ts/output](shared/ts/output.md): Output, OutputStreams, PROCESS_STREAMS, createOutput
+- [ts/paths](shared/ts/paths.md): EXECUTABLE_MODE, PRIVATE_DIR_MODE, PathBinary, PathEnv, READABLE_MODE, binariesOnPath, findOnPath, isWithin, tbxBinDir, xdgBaseDir
+- [ts/pty](shared/ts/pty.md): PtyOptions, PtyResult, runInPty
+- [py/retry](shared/py/retry.md): retry_policy, with_retry
+- [ts/run](shared/ts/run.md): CapturedOutput, CommandError, MAX_CAPTURE_BYTES, RunOptions, RunResult, captureOutput, runBounded, runOpen, signalGroup
