@@ -272,6 +272,20 @@ describe('createIsolatedEnv', () => {
     }
   });
 
+  it('sends HTTP from tools to a dead local proxy, with no proxy bypass', async () => {
+    const isolated = await createIsolatedEnv();
+    try {
+      for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']) {
+        expect(isolated.env[name], name).toBe('http://127.0.0.1:9');
+        expect(isolated.env[name.toLowerCase()], name.toLowerCase()).toBe('http://127.0.0.1:9');
+      }
+      expect(isolated.env.NO_PROXY).toBe('');
+      expect(isolated.env.no_proxy).toBe('');
+    } finally {
+      await isolated.cleanup();
+    }
+  });
+
   it('puts only allowlisted command links on PATH and cleans up idempotently', async () => {
     const isolated = await createIsolatedEnv();
     const entries = (isolated.env.PATH ?? '').split(delimiter);
