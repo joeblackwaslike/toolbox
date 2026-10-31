@@ -17,8 +17,8 @@ const UNIT_TESTS: Record<Lang, (name: string) => string> = {
   sh: (name) => `tests/unit/${name}.bats`,
 };
 
-const E2E_TESTS: Record<Lang, (name: string) => [string, string]> = {
-  ts: (name) => [
+const E2E_TESTS: Record<Lang, (name: string, expected: string) => [string, string]> = {
+  ts: (name, expected) => [
     `tests/e2e/${name}-installed.test.ts`,
     [
       "import { execFileSync } from 'node:child_process';",
@@ -28,13 +28,13 @@ const E2E_TESTS: Record<Lang, (name: string) => [string, string]> = {
       "  it('prints its name as JSON', () => {",
       "    const bin = process.env.TBX_TOOL_BIN ?? '';",
       "    const stdout = execFileSync(bin, ['--json'], { encoding: 'utf8' });",
-      `    expect(JSON.parse(stdout) as unknown).toBe('${name}');`,
+      `    expect(JSON.parse(stdout) as unknown).toBe('${expected}');`,
       '  });',
       '});',
       '',
     ].join('\n'),
   ],
-  py: (name) => [
+  py: (name, expected) => [
     `tests/e2e/test_${name.replaceAll('-', '_')}_installed.py`,
     [
       'import json',
@@ -51,11 +51,11 @@ const E2E_TESTS: Record<Lang, (name: string) => [string, string]> = {
       '        timeout=30,',
       '    )',
       '    assert proc.returncode == 0, proc.stderr',
-      `    assert json.loads(proc.stdout) == "${name}"`,
+      `    assert json.loads(proc.stdout) == "${expected}"`,
       '',
     ].join('\n'),
   ],
-  sh: (name) => [
+  sh: (name, expected) => [
     `tests/e2e/${name}-installed.bats`,
     [
       '#!/usr/bin/env bats',
@@ -64,7 +64,7 @@ const E2E_TESTS: Record<Lang, (name: string) => [string, string]> = {
       '  [[ "$HOME" == */tbx-verify-*/home ]]',
       '  run "$TBX_TOOL_BIN" --json',
       '  [ "$status" -eq 0 ]',
-      `  [ "$output" = '"${name}"' ]`,
+      `  [ "$output" = '"${expected}"' ]`,
       '}',
       '',
     ].join('\n'),
@@ -110,9 +110,12 @@ export class VerifyFixtures {
     expect(result).toMatchObject({ code: 0 });
   }
 
-  /** Adds an e2e test that runs the installed binary from `TBX_TOOL_BIN`. */
-  async withE2e(name: string, lang: Lang): Promise<void> {
-    const [file, content] = E2E_TESTS[lang](name);
+  /**
+   * Adds an e2e test that runs the installed binary from `TBX_TOOL_BIN` and expects it to print
+   * `expected` (its name by default; anything else makes the test fail).
+   */
+  async withE2e(name: string, lang: Lang, expected = name): Promise<void> {
+    const [file, content] = E2E_TESTS[lang](name, expected);
     await mkdir(join(this.tool(name, file), '..'), { recursive: true });
     await writeFile(this.tool(name, file), content);
   }

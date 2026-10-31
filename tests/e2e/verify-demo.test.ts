@@ -328,3 +328,38 @@ describe('createIsolatedEnv', () => {
     expect(await exists(stubs)).toBe(false);
   });
 });
+
+describe('root test runners', () => {
+  it(
+    'skip tools/*/tests/e2e, which only verify runs against an installed binary',
+    async () => {
+      const roots = await VerifyFixtures.create();
+      for (const lang of ['ts', 'py', 'sh'] as const) {
+        await roots.passing(`x-${lang}`, lang);
+        await roots.withE2e(`x-${lang}`, lang, 'not-the-name');
+      }
+      const { root } = roots;
+      await runOpen('git', ['init', '-q'], { cwd: root });
+      const runners: [string, string[]][] = [
+        [join(root, 'node_modules/.bin/vitest'), ['run']],
+        ['uv', ['run', 'pytest', '-p', 'no:faulthandler', '--no-header', '-q', 'tools']],
+        ['just', ['test-sh']],
+      ];
+      for (const [command, args] of runners) {
+        const result = await runOpen(command, args, {
+          cwd: root,
+          closeStdin: true,
+          timeoutMs: VERIFY_TIMEOUT_MS,
+        });
+        expect(result.status, `${command}\n${result.stdout}\n${result.stderr}`).toBe(0);
+        expect(`${result.stdout}${result.stderr}`).not.toMatch(/installed/);
+      }
+      for (const lang of ['ts', 'py', 'sh']) {
+        const report = await verifyTool(root, `x-${lang}`);
+        expect(statuses(report), explain(report)).toEqual({ ...ALL_PASS, e2e: 'fail' });
+        expect(detailOf(report, 'e2e')).toMatch(/not-the-name/);
+      }
+    },
+    VERIFY_TIMEOUT_MS,
+  );
+});

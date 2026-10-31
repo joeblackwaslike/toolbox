@@ -48,7 +48,7 @@ test-py:
 test-sh:
   #!/usr/bin/env bash
   set -euo pipefail
-  files=$(git ls-files -co --exclude-standard -- '*.bats')
+  files=$(git ls-files -co --exclude-standard -- '*.bats' ':(exclude,glob)tools/*/tests/e2e/**')
   [ -z "$files" ] && exit 0
   bats $files
 

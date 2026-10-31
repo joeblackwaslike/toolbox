@@ -180,25 +180,28 @@ export async function lintStep(root: string, name: string, lang: Lang): Promise<
 }
 
 /**
- * The command that runs the test files of one kind (`tests/unit` or `tests/e2e`) of a tool:
- * vitest, pytest (`-p no:faulthandler --no-header -q`) or bats. With `env`, the runner is given
- * by absolute path (pytest through the root's virtualenv Python), so it needs nothing from
- * `env.PATH` beyond what the isolated environment links.
+ * The command that runs `targets` (a tool's `tests/unit` directory, or its e2e test files) with
+ * vitest, pytest (`-p no:faulthandler --no-header -q`) or bats. The root runners skip
+ * `tools/<name>/tests/e2e` suites (vitest unless `TBX_TOOL_BIN` is set, pytest unless a file is named
+ * explicitly, bats through the justfile), so e2e suites are passed as files. With `env`, the
+ * runner is given by absolute path (pytest through the root's virtualenv Python), so it needs
+ * nothing from `env.PATH` beyond what the isolated environment links.
  */
 export async function testCommand(
   root: string,
   lang: Lang,
-  dir: string,
+  targets: string[],
   env?: NodeJS.ProcessEnv,
 ): Promise<CheckCommand> {
   const scoped = env === undefined ? {} : { env };
-  if (lang === 'ts')
-    return { command: nodeBin(root, 'vitest'), args: ['run', `${dir}/`], ...scoped };
+  if (lang === 'ts') {
+    return { command: nodeBin(root, 'vitest'), args: ['run', ...targets], ...scoped };
+  }
   if (lang === 'sh') {
     const bats = env === undefined ? 'bats' : await findOnPath('bats', process.env.PATH ?? '');
-    return { command: bats ?? 'bats', args: ['-r', dir], ...scoped };
+    return { command: bats ?? 'bats', args: ['-r', ...targets], ...scoped };
   }
-  const pytest = ['-p', 'no:faulthandler', '--no-header', '-q', dir];
+  const pytest = ['-p', 'no:faulthandler', '--no-header', '-q', ...targets];
   if (env === undefined) return { command: 'uv', args: ['run', 'pytest', ...pytest] };
   return { command: await venvPython(root), args: ['-m', 'pytest', ...pytest], env };
 }
@@ -253,6 +256,6 @@ export async function unitStep(
   if (files.length === 0) {
     return { status: 'fail', detail: `no unit tests in ${dir}` };
   }
-  const command = await testCommand(root, lang, dir);
+  const command = await testCommand(root, lang, [`${dir}/`]);
   return outcomeOf(await runChecks(root, [{ ...command, env }]));
 }

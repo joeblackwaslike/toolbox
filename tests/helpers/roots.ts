@@ -13,6 +13,8 @@ const CONFIGS = [
   'pyproject.toml',
   '.editorconfig',
   'uv.lock',
+  'vitest.config.ts',
+  'justfile',
 ];
 
 /** A temp root holding only the fixture tools under `tools/`. */

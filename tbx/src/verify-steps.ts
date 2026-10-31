@@ -202,8 +202,7 @@ export async function endToEndStep(
       'TBX_TOOL_BIN',
       installed.link,
     );
-    const dir = `tools/${m.name}/tests/e2e`;
-    const command = await testCommand(root, m.language, dir, suiteEnv);
+    const command = await testCommand(root, m.language, suite, suiteEnv);
     failures.push(...(await runChecks(root, [command])));
   }
   return outcomeOf(failures);
