@@ -77,6 +77,19 @@ async function binariesIn(dir: string, excluded: readonly string[]): Promise<Pat
 }
 
 /**
+ * Returns the path of the first executable regular file called `name` (symlinks followed) in
+ * the directories of a PATH-style string, or `null` when no entry has one. The path is the
+ * PATH entry joined with `name`, not its real path.
+ */
+export async function findOnPath(name: string, pathVariable: string): Promise<string | null> {
+  for (const dir of pathVariable.split(path.delimiter).filter((entry) => entry !== '')) {
+    const file = path.join(dir, name);
+    if (await isExecutableFile(file)) return file;
+  }
+  return null;
+}
+
+/**
  * Lists the executable regular files (symlinks followed) in each directory of a PATH-style
  * string, one per name with the first PATH entry winning, sorted by name. Empty entries,
  * unreadable directories, non-executables, directories and broken symlinks are skipped, as

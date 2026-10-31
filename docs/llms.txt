@@ -25,5 +25,6 @@
 - [ts/manifest](docs/shared/ts/manifest.md): ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, ToolManifest, UnitSpec
 - [py/output](docs/shared/py/output.md): Output
 - [ts/output](docs/shared/ts/output.md): createOutput, Output, OutputStreams, PROCESS_STREAMS
-- [ts/paths](docs/shared/ts/paths.md): binariesOnPath, PathBinary, tbxBinDir
+- [ts/paths](docs/shared/ts/paths.md): binariesOnPath, findOnPath, PathBinary, tbxBinDir
+- [ts/pty](docs/shared/ts/pty.md): PtyOptions, PtyResult, runInPty
 - [py/retry](docs/shared/py/retry.md): retry_policy, with_retry

@@ -18,6 +18,16 @@ its own shim).
 - @param pathVariable the PATH value; defaults to `process.env.PATH`.
 - @param excludedRoots directories whose contents never count as PATH binaries.
 
+## findOnPath
+
+```ts
+async function findOnPath(name: string, pathVariable: string): Promise<string | null>
+```
+
+Returns the path of the first executable regular file called `name` (symlinks followed) in
+the directories of a PATH-style string, or `null` when no entry has one. The path is the
+PATH entry joined with `name`, not its real path.
+
 ## PathBinary
 
 ```ts
