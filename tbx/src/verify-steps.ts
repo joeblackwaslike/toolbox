@@ -33,6 +33,10 @@ export interface Installed {
 const INTERACTIVE_INPUT = '\u0004';
 const MS_PER_SECOND = 1000;
 const SIGNAL_EXIT_BASE = 128;
+/** Shell exit codes for a command that was found but not executable (126) or not found (127). */
+const CANNOT_EXECUTE = 126;
+const NOT_FOUND = 127;
+const NOT_RUNNABLE: ReadonlySet<number> = new Set([CANNOT_EXECUTE, NOT_FOUND]);
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -152,8 +156,12 @@ async function interactiveFailure(
       input: INTERACTIVE_INPUT,
       deadlineMs,
     });
+    if (!result.started) return `${label}: cannot start a pty:\n${tail(result.output)}`;
     if (result.timedOut) {
       return `${label} killed at the ${deadlineMs / MS_PER_SECOND}s deadline:\n${tail(result.output)}`;
+    }
+    if (result.code !== null && NOT_RUNNABLE.has(result.code)) {
+      return `${label} could not run the tool (exit ${result.code}):\n${tail(result.output)}`;
     }
     const signalled = result.code === null || result.code > SIGNAL_EXIT_BASE;
     return signalled ? `${label} ended by a signal (exit ${String(result.code)})` : null;
@@ -166,7 +174,8 @@ async function interactiveFailure(
  * End to end against the installed binary in the isolated environment: a non-interactive run
  * (`<required placeholders> -y --json` on a non-TTY stdin) must exit before `deadlineMs` with
  * JSON on stdout, or nothing on stdout when it fails; an interactive run (the placeholders, no
- * flags, in a pty, stdin given one Ctrl-D) must exit before `deadlineMs` and not by a signal;
+ * flags, in a pty, stdin given one Ctrl-D) must start its pty, then exit before `deadlineMs`,
+ * not by a signal and not with 126 or 127 (the tool could not be executed);
  * then the tool's own `tests/e2e`, when it has any, must pass, run with `TBX_TOOL_BIN` set to
  * the installed binary and the managed bin directory first on `PATH`.
  */

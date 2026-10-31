@@ -28,4 +28,4 @@
 - [ts/paths](docs/shared/ts/paths.md): binariesOnPath, findOnPath, PathBinary, tbxBinDir
 - [ts/pty](docs/shared/ts/pty.md): PtyOptions, PtyResult, runInPty
 - [py/retry](docs/shared/py/retry.md): retry_policy, with_retry
-- [ts/run](docs/shared/ts/run.md): runOpen, RunOptions, RunResult
+- [ts/run](docs/shared/ts/run.md): CommandError, runBounded, runOpen, RunOptions, RunResult, signalGroup

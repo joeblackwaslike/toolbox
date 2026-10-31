@@ -1,12 +1,12 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runInPty } from '../../shared/ts/src/pty.ts';
 
 const ENV = { PATH: process.env.PATH ?? '' };
 const DEADLINE_MS = 10_000;
-const SHORT_DEADLINE_MS = 500;
+const SHORT_DEADLINE_MS = 2000;
 const POLL_MS = 50;
 const GONE_WITHIN_MS = 3000;
 
@@ -34,8 +34,9 @@ describe('runInPty', () => {
       env: ENV,
       deadlineMs: DEADLINE_MS,
     });
-    expect(result).toMatchObject({ code: 3, timedOut: false });
+    expect(result).toMatchObject({ code: 3, timedOut: false, started: true });
     expect(result.output).toContain('on-a-tty');
+    expect(result.output).not.toContain('tbx-pty-started');
   });
 
   it('feeds input to the session as typed lines', async () => {
@@ -66,9 +67,21 @@ describe('runInPty', () => {
     expect(await goneWithin(pid, GONE_WITHIN_MS)).toBe(true);
   });
 
-  it('reports a command that cannot start as a failed session, not a hang', async () => {
+  it('reports a command that cannot start as exit 127 on a started pty, not a hang', async () => {
     const result = await runInPty(['tbx-no-such-command'], { env: ENV, deadlineMs: DEADLINE_MS });
-    expect(result.timedOut).toBe(false);
-    expect(result.code).not.toBe(0);
+    expect(result).toMatchObject({ code: 127, timedOut: false, started: true });
+  });
+
+  it('reports started: false when the pty driver fails before the pty exists', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tbx-pty-'));
+    const bogus = join(dir, 'python3');
+    await writeFile(bogus, '#!/bin/sh\necho "OSError: out of pty devices" >&2\nexit 1\n');
+    await chmod(bogus, 0o755);
+    const result = await runInPty(['sh', '-c', 'exit 0'], {
+      env: { PATH: [dir, ENV.PATH].join(delimiter) },
+      deadlineMs: DEADLINE_MS,
+    });
+    expect(result).toMatchObject({ code: 1, timedOut: false, started: false });
+    expect(result.output).toContain('out of pty devices');
   });
 });
