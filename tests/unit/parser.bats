@@ -7,10 +7,26 @@ setup() {
   GOLDEN="${BATS_TEST_DIRNAME}/../fixtures/tools/demo/usage.json"
 }
 
+# Runs a command with a background watchdog that kills it after $1 seconds, without
+# depending on the GNU-only `timeout` binary (absent on macOS by default).
+with_deadline() {
+  local secs=$1
+  shift
+  "$@" &
+  local cmd_pid=$!
+  (sleep "$secs" 2>/dev/null && kill -TERM "$cmd_pid" 2>/dev/null) &
+  local watcher_pid=$!
+  local status=0
+  wait "$cmd_pid" 2>/dev/null || status=$?
+  kill "$watcher_pid" 2>/dev/null
+  wait "$watcher_pid" 2>/dev/null
+  return "$status"
+}
+
 # Runs the demo with stdin held open by a pipe that never writes, so a prompt would hang
-# until timeout kills it (exit 124).
+# until the deadline kills it.
 demo_open() {
-  timeout 10 bash "$DEMO" "$@" < <(sleep 30)
+  with_deadline 10 bash "$DEMO" "$@" < <(sleep 30)
 }
 
 @test "exits 2 when a required argument is missing and -y is set" {

@@ -74,6 +74,22 @@ esac
 STUB
 }
 
+# Runs a command with a background watchdog that kills it after $1 seconds, without
+# depending on the GNU-only `timeout` binary (absent on macOS by default).
+with_deadline() {
+  local secs=$1
+  shift
+  "$@" &
+  local cmd_pid=$!
+  (sleep "$secs" 2>/dev/null && kill -TERM "$cmd_pid" 2>/dev/null) &
+  local watcher_pid=$!
+  local status=0
+  wait "$cmd_pid" 2>/dev/null || status=$?
+  kill "$watcher_pid" 2>/dev/null
+  wait "$watcher_pid" 2>/dev/null
+  return "$status"
+}
+
 setup() {
   TOOL="${BATS_TEST_DIRNAME}/../../src/transcribe"
   BASH_BIN="$(command -v bash)"
@@ -222,8 +238,9 @@ count_calls() {
   export STUB_TRANSCRIPT="the quick brown fox"
   run_tool "$URL"
   [ "$status" -eq 0 ]
-  local -a args
-  mapfile -t args <"$STUB_CLAUDE_ARGS"
+  local -a args=()
+  local line
+  while IFS= read -r line; do args+=("$line"); done <"$STUB_CLAUDE_ARGS"
   [ "${#args[@]}" -eq 9 ]
   [ "${args[0]}" = "-p" ]
   [ "${args[1]}" = "--tools" ]
@@ -241,8 +258,9 @@ count_calls() {
   run_tool "$URL"
   [ "$status" -eq 0 ]
   [ "$(count_calls claude)" = "1" ]
-  local -a args
-  mapfile -t args <"$STUB_CLAUDE_ARGS"
+  local -a args=()
+  local line
+  while IFS= read -r line; do args+=("$line"); done <"$STUB_CLAUDE_ARGS"
   local i tools=0
   for i in "${!args[@]}"; do
     if [ "${args[$i]}" = "--tools" ]; then
@@ -342,13 +360,13 @@ count_calls() {
 }
 
 @test "-y never prompts" {
-  run --separate-stderr timeout 20 env PATH="$STUBS:$BASE" TMPDIR="$TMPROOT" "$BASH_BIN" "$TOOL" -y "$URL" < <(sleep 25)
+  run --separate-stderr with_deadline 20 env PATH="$STUBS:$BASE" TMPDIR="$TMPROOT" "$BASH_BIN" "$TOOL" -y "$URL" < <(sleep 25)
   [ "$status" -eq 0 ]
   [ "$output" = "# Formatted" ]
 }
 
 @test "-y with the url missing exits 2 instead of waiting" {
-  run --separate-stderr timeout 20 env PATH="$STUBS:$BASE" TMPDIR="$TMPROOT" "$BASH_BIN" "$TOOL" -y < <(sleep 25)
+  run --separate-stderr with_deadline 20 env PATH="$STUBS:$BASE" TMPDIR="$TMPROOT" "$BASH_BIN" "$TOOL" -y < <(sleep 25)
   [ "$status" -eq 2 ]
 }
 
