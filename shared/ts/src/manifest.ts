@@ -174,6 +174,20 @@ const unitSpecSchema = z
         message: 'a schedule unit needs calendar or interval',
       });
     }
+    if (unit.kind === 'daemon' && unit.calendar !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['calendar'],
+        message: 'a daemon unit cannot set calendar because it runs continuously (use a schedule unit for timed jobs)',
+      });
+    }
+    if (unit.kind === 'daemon' && unit.interval !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['interval'],
+        message: 'a daemon unit cannot set interval because it runs continuously (use a schedule unit for timed jobs)',
+      });
+    }
   });
 
 const toolManifestSchema = z

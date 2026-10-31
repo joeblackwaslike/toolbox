@@ -104,6 +104,24 @@ default = true
     expect(() => parseManifest(toml)).toThrow(/unit/);
   });
 
+  it('rejects a daemon unit that sets calendar or interval', () => {
+    const daemonWithCalendar = VALID.replace('kind = "schedule"', 'kind = "daemon"');
+    expect(() => parseManifest(daemonWithCalendar)).toThrow(/daemon.*calendar/s);
+
+    const daemonWithInterval = VALID.replace('kind = "schedule"', 'kind = "daemon"')
+      .replace(/\[unit\.calendar\][\s\S]*$/, '')
+      .replace('runAtLoad', 'interval = 60\nrunAtLoad');
+    expect(() => parseManifest(daemonWithInterval)).toThrow(/daemon.*interval/s);
+  });
+
+  it('accepts a daemon unit with only runAtLoad', () => {
+    const toml = VALID.replace('kind = "schedule"', 'kind = "daemon"').replace(
+      /\[unit\.calendar\][\s\S]*$/,
+      '',
+    );
+    expect(parseManifest(toml).unit).toEqual({ kind: 'daemon', runAtLoad: false });
+  });
+
   it('rejects out-of-range or non-integer unit calendar and interval values', () => {
     for (const bad of ['hour = 24', 'hour = -1', 'hour = 3.5', 'minute = 60', 'minute = 1.5']) {
       const key = bad.split(' ')[0] as string;
