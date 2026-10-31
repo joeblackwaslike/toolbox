@@ -11,6 +11,24 @@ const ExitCode
 Stable process exit codes shared by every tbx tool. `usage` and `unavailable` and `config`
 follow the sysexits convention (2, 69, 78).
 
+## ToolError
+
+```ts
+class ToolError extends Error
+```
+
+Error a tool throws to end the run with a specific exit code. `code` defaults to
+`ExitCode.failure`; `cause` keeps the underlying error.
+
+## errorLines
+
+```ts
+function errorLines(error: unknown): string[]
+```
+
+The stderr lines for an error a tool did not expect: `error: <message>`, then one
+`  caused by: <message>` line per entry in its `cause` chain. No stack trace.
+
 ## isErrnoException
 
 ```ts
@@ -26,12 +44,3 @@ function messageOf(error: unknown): string
 ```
 
 The message of an `Error`, or `String(error)` for anything else that was thrown.
-
-## ToolError
-
-```ts
-class ToolError extends Error
-```
-
-Error a tool throws to end the run with a specific exit code. `code` defaults to
-`ExitCode.failure`; `cause` keeps the underlying error.

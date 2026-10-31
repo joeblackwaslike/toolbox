@@ -33,3 +33,19 @@ export function isErrnoException(error: unknown): error is NodeJS.ErrnoException
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * The stderr lines for an error a tool did not expect: `error: <message>`, then one
+ * `  caused by: <message>` line per entry in its `cause` chain. No stack trace.
+ */
+export function errorLines(error: unknown): string[] {
+  const lines = [`error: ${messageOf(error)}`];
+  const seen = new Set<unknown>([error]);
+  let cause = error instanceof Error ? error.cause : undefined;
+  while (cause !== undefined && !seen.has(cause)) {
+    seen.add(cause);
+    lines.push(`  caused by: ${messageOf(cause)}`);
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return lines;
+}

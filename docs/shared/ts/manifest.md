@@ -10,19 +10,6 @@ type ArgSpec = z.infer<typeof argumentSpecSchema>
 
 A positional argument declared in `tool.toml`.
 
-## assertNoCollisions
-
-```ts
-function assertNoCollisions(manifests: ToolManifest[], pathBinaries: string[]): void
-```
-
-Ensures every tool name and alias is unique across tools and does not shadow a binary
-already on PATH.
-
-- @param manifests the tools to check together.
-- @param pathBinaries binary names already present on PATH.
-- @throws {ManifestError} naming both owners of the first colliding identifier.
-
 ## BUILTIN_OPTIONS
 
 ```ts
@@ -32,33 +19,6 @@ const BUILTIN_OPTIONS: readonly OptSpec[]
 Flags the generated parsers add to every tool, in help order. A manifest option cannot
 reuse their long or short names, nor the positive form of a `no-` built-in (`input`),
 which Commander would pair with it into one negatable option.
-
-## describePathCollision
-
-```ts
-function describePathCollision(collision: PathCollision): string
-```
-
-Formats a `PathCollision` as `"<identifier>" collides: <owner> and PATH binary <path>`.
-
-## findPathCollisions
-
-```ts
-function findPathCollisions( manifests: ToolManifest[], binaries: readonly { name: string; path: string }[], ): PathCollision[]
-```
-
-Lists every name or alias in `manifests` that equals the name of one of `binaries`, in
-manifest order.
-
-## loadManifest
-
-```ts
-async function loadManifest(path: string): Promise<ToolManifest>
-```
-
-Reads and validates a `tool.toml` from disk.
-
-- @throws {ManifestError} when the file cannot be read or is invalid; the message names `path`.
 
 ## ManifestError
 
@@ -85,16 +45,6 @@ type OptSpec = z.infer<typeof optSpecSchema>
 ```
 
 A flag or option declared in `tool.toml`.
-
-## parseManifest
-
-```ts
-function parseManifest(toml: string): ToolManifest
-```
-
-Parses and validates the text of a `tool.toml`.
-
-- @throws {ManifestError} on TOML syntax errors or schema violations, naming the failing field.
 
 ## PathCollision
 
@@ -128,3 +78,53 @@ type UnitSpec = z.infer<typeof unitSpecSchema>
 ```
 
 The launchd/systemd unit settings declared in `tool.toml`.
+
+## assertNoCollisions
+
+```ts
+function assertNoCollisions(manifests: ToolManifest[], pathBinaries: string[]): void
+```
+
+Ensures every tool name and alias is unique across tools and does not shadow a binary
+already on PATH.
+
+- @param manifests the tools to check together.
+- @param pathBinaries binary names already present on PATH.
+- @throws {ManifestError} naming both owners of the first colliding identifier.
+
+## describePathCollision
+
+```ts
+function describePathCollision(collision: PathCollision): string
+```
+
+Formats a `PathCollision` as `"<identifier>" collides: <owner> and PATH binary <path>`.
+
+## findPathCollisions
+
+```ts
+function findPathCollisions( manifests: ToolManifest[], binaries: readonly { name: string; path: string }[], ): PathCollision[]
+```
+
+Lists every name or alias in `manifests` that equals the name of one of `binaries`, in
+manifest order.
+
+## loadManifest
+
+```ts
+async function loadManifest(path: string): Promise<ToolManifest>
+```
+
+Reads and validates a `tool.toml` from disk.
+
+- @throws {ManifestError} when the file cannot be read or is invalid; the message names `path`.
+
+## parseManifest
+
+```ts
+function parseManifest(toml: string): ToolManifest
+```
+
+Parses and validates the text of a `tool.toml`.
+
+- @throws {ManifestError} on TOML syntax errors or schema violations, naming the failing field.

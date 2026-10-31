@@ -4,7 +4,11 @@ export interface GeneratedFile {
   content: string;
 }
 
-/** Orders two strings the same way on every machine, for deterministic generated output. */
+/**
+ * Orders two strings by UTF-16 code unit, so every runtime and ICU version sorts generated
+ * output the same way.
+ */
 export function compareText(a: string, b: string): number {
-  return a.localeCompare(b, 'en');
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }

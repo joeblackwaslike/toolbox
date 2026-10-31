@@ -1,12 +1,23 @@
 import { spawnSync } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
 import { checkDrift } from '../../shared/ts/src/gen/index.ts';
 import { RESERVED_COMMANDS, loadManifest } from '../../shared/ts/src/manifest.ts';
-import { runTbx } from '../../tbx/src/index.ts';
+import { isEntryPoint, runTbx } from '../../tbx/src/index.ts';
 import { REPO, fixtureRoot, scaffoldRoot } from '../helpers/roots.ts';
 
 const NO_PATH = { path: '', vars: {} };
@@ -179,9 +190,9 @@ describe('tbx new', () => {
   it('new removes everything it wrote when a later step fails, so a rerun succeeds', async () => {
     const root = await scaffoldRoot();
     await writeFile(join(root, BROKEN_PY), 'def (:\n');
-    await expect(
-      runTbx(['new', 'hello', '--lang', 'py', '-y'], { root, ...NO_PATH }),
-    ).rejects.toThrow();
+    const failed = await runTbx(['new', 'hello', '--lang', 'py', '-y'], { root, ...NO_PATH });
+    expect(failed).toMatchObject({ code: 1, stdout: '' });
+    expect(failed.stderr).toMatch(/^error: .*SyntaxError/s);
     expect(await missing(join(root, 'tools/hello'))).toBe(true);
     await rm(join(root, BROKEN_PY));
     expect((await runTbx(['new', 'hello', '--lang', 'py', '-y'], { root, ...NO_PATH })).code).toBe(
@@ -302,7 +313,7 @@ describe('tbx shared new', () => {
     const root = await scaffoldRoot();
     await writeFile(join(root, BROKEN_PY), 'def (:\n');
     const argv = ['shared', 'new', 'roll', '--lang', 'ts', '-y'];
-    await expect(runTbx(argv, { root, ...NO_PATH })).rejects.toThrow();
+    expect(await runTbx(argv, { root, ...NO_PATH })).toMatchObject({ code: 1, stdout: '' });
     expect(await missing(join(root, 'shared/ts/src/roll.ts'))).toBe(true);
     expect(await missing(join(root, 'tests'))).toBe(true);
     expect(await missing(join(root, 'shared/ts/src'))).toBe(false);
@@ -341,6 +352,27 @@ describe('tbx flags', () => {
     const result = await runTbx(['--help'], { root: REPO, ...NO_PATH });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('list');
+  });
+
+  it('an unexpected error exits 1 with an error line and no stack trace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tbx-cmd-'));
+    await writeFile(join(root, 'tools'), 'not a directory');
+    const result = await runTbx(['list'], { root, ...NO_PATH });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/^error: .*ENOTDIR/);
+    expect(result.stderr).not.toMatch(/\n\s+at /);
+  });
+
+  it('isEntryPoint compares the module path with the resolved argv[1]', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'tbx-main-')));
+    const file = join(dir, 'main.ts');
+    await writeFile(file, '');
+    await symlink(file, join(dir, 'link.ts'));
+    const url = pathToFileURL(file).href;
+    expect(isEntryPoint(url, file)).toBe(true);
+    expect(isEntryPoint(url, join(dir, 'link.ts'))).toBe(true);
+    expect(isEntryPoint(url, join(dir, 'other.ts'))).toBe(false);
+    expect(isEntryPoint(url, undefined)).toBe(false);
   });
 
   it('every tbx subcommand is in RESERVED_COMMANDS', async () => {

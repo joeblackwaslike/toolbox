@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
-import { findOnPath } from '../../shared/ts/src/paths.ts';
+import { findOnPath, isWithin } from '../../shared/ts/src/paths.ts';
 
 /**
  * Commands linked into an isolated environment's PATH when the host PATH has them: a shell
@@ -65,15 +65,10 @@ export interface IsolatedEnv {
   cleanup(): Promise<void>;
 }
 
-function within(dir: string, root: string): boolean {
-  const relative = path.relative(root, dir);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
 function scratchBase(): string {
   const base = tmpdir();
   const homes = [homedir(), userInfo().homedir].filter((home) => home.length > 1);
-  return homes.some((home) => within(base, home)) ? '/tmp' : base;
+  return homes.some((home) => isWithin(home, base)) ? '/tmp' : base;
 }
 
 async function linkCommands(stubs: string, hostPath: string): Promise<void> {

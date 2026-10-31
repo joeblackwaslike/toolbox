@@ -12,7 +12,8 @@ import {
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { TarMember } from '../../tbx/src/archive.ts';
+import { type TarMember, packTar, sha256 } from '../../tbx/src/archive.ts';
+import { writeIndex } from '../../tbx/src/commands/build.ts';
 import { installTool, uninstallTool } from '../../tbx/src/commands/install.ts';
 import {
   type Sandbox,
@@ -77,6 +78,16 @@ describe('installTool', () => {
     expect(await readlink(paths.link)).toBe(join(paths.tools, '1.0.0', 'bin', TOOL));
     expect(await installedVersion()).toBe('1.0.0');
     expect(await exists(paths.lock)).toBe(false);
+  });
+
+  it('accepts an artifact whose file name starts with two dots', async () => {
+    const bytes = packTar(members('1.0.0'));
+    await writeFile(join(box.releases, '..hello.tar.gz'), bytes);
+    const index = await writeIndex(box.releases, [
+      { name: TOOL, version: '1.0.0', artifact: '..hello.tar.gz', sha256: sha256(bytes) },
+    ]);
+    await install(index);
+    expect(runBinary(paths.link)).toBe('hello 1.0.0');
   });
 
   it('install rejects a tampered artifact (checksum mismatch)', async () => {

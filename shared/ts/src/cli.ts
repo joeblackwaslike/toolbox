@@ -1,7 +1,13 @@
 import { isatty } from 'node:tty';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
-import { ExitCode, ToolError } from './errors.ts';
-import { type ArgSpec, BUILTIN_OPTIONS, type OptSpec, type ToolManifest } from './manifest.ts';
+import { ExitCode, ToolError, errorLines } from './errors.ts';
+import {
+  type ArgSpec,
+  BUILTIN_OPTIONS,
+  ManifestError,
+  type OptSpec,
+  type ToolManifest,
+} from './manifest.ts';
 import { type Output, createOutput } from './output.ts';
 
 const STDIN_FD = 0;
@@ -146,14 +152,25 @@ function writeHelp(m: ToolManifest, program: Command, json: boolean): number {
   return ExitCode.ok;
 }
 
+/**
+ * Reports `error` on stderr and returns the exit code for it: a `ToolError` its own code, a
+ * `ManifestError` 78, anything else 1 with its cause chain (see `errorLines`) and no stack.
+ */
+export function reportError(error: unknown, out: Output): number {
+  if (error instanceof ToolError || error instanceof ManifestError) {
+    out.error(`error: ${error.message}`);
+    return error instanceof ToolError ? error.code : ExitCode.config;
+  }
+  for (const line of errorLines(error)) out.error(line);
+  return ExitCode.failure;
+}
+
 async function runBody(run: ToolRun, ctx: ToolContext): Promise<number> {
   try {
     await run(ctx);
     return ExitCode.ok;
   } catch (error) {
-    if (!(error instanceof ToolError)) throw error;
-    ctx.out.error(`error: ${error.message}`);
-    return error.code;
+    return reportError(error, ctx.out);
   }
 }
 
@@ -161,10 +178,10 @@ async function runBody(run: ToolRun, ctx: ToolContext): Promise<number> {
  * Parses `argv` against the manifest and calls `run`, returning the exit code instead of
  * exiting. Parse errors (unknown flag, bad value, too many or missing arguments) return
  * `ExitCode.usage` with a usage line on stderr and never prompt. `--help` wins over a missing
- * argument; `--help --json` prints `usageOf(m)`.
+ * argument; `--help --json` prints `usageOf(m)`. Whatever `run` throws is reported by
+ * `reportError` and its exit code returned.
  *
  * @param stdinIsTTY whether stdin is a terminal; defaults to checking file descriptor 0.
- * @throws whatever `run` throws that is not a `ToolError`.
  */
 export async function runTool(
   m: ToolManifest,
@@ -208,7 +225,12 @@ function flush(stream: NodeJS.WriteStream): Promise<void> {
  * then exits with the resulting code.
  */
 export async function defineTool(m: ToolManifest, run: ToolRun): Promise<never> {
-  const code = await runTool(m, run, process.argv.slice(2));
+  let code: number;
+  try {
+    code = await runTool(m, run, process.argv.slice(2));
+  } catch (error) {
+    code = reportError(error, createOutput({ json: false }));
+  }
   await Promise.all([flush(process.stdout), flush(process.stderr)]);
   process.exit(code);
 }

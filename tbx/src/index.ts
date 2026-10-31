@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { constants, homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError, Option } from 'commander';
-import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
-import { ManifestError, RESERVED_COMMANDS } from '../../shared/ts/src/manifest.ts';
+import { reportError } from '../../shared/ts/src/cli.ts';
+import { ExitCode } from '../../shared/ts/src/errors.ts';
+import { RESERVED_COMMANDS } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
 import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
 import { build } from './commands/build.ts';
@@ -191,11 +193,7 @@ function exitCodeOf(error: unknown, streams: OutputStreams): number {
   if (error instanceof CommanderError) {
     return error.exitCode === ExitCode.ok ? ExitCode.ok : ExitCode.usage;
   }
-  if (error instanceof ToolError || error instanceof ManifestError) {
-    streams.stderr(`error: ${error.message}\n`);
-    return error instanceof ToolError ? error.code : ExitCode.config;
-  }
-  throw error;
+  return reportError(error, createOutput({ json: false, streams }));
 }
 
 const SIGNAL_EXIT_BASE = 128;
@@ -260,6 +258,20 @@ export async function runTbx(argv: string[], env: TbxEnv): Promise<TbxResult> {
   return { code, stdout, stderr };
 }
 
-if (import.meta.main) {
+/**
+ * True when the module at `moduleUrl` is the script being run: `argv1` (normally
+ * `process.argv[1]`) resolves, through symlinks, to the module's file. Works on Bun and on Node
+ * versions without `import.meta.main`.
+ */
+export function isEntryPoint(moduleUrl: string, argv1: string | undefined): boolean {
+  if (argv1 === undefined) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint(import.meta.url, process.argv[1])) {
   process.exitCode = await execute(process.argv.slice(2), { root: REPO_ROOT }, PROCESS_STREAMS);
 }

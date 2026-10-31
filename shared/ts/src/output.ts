@@ -3,7 +3,10 @@
  * `error` are diagnostics and go to stderr, so stdout stays machine-readable.
  */
 export interface Output {
-  /** Writes the result to stdout: JSON when json mode is on, otherwise strings verbatim. */
+  /**
+   * Writes the result to stdout: JSON when json mode is on, otherwise strings verbatim and
+   * anything else as indented JSON. `undefined` prints `null`.
+   */
   result(data: unknown): void;
   /** Writes an informational line to stderr. */
   info(message: string): void;
@@ -12,10 +15,11 @@ export interface Output {
 }
 
 function render(data: unknown, json: boolean): string {
+  const value = data ?? null;
   if (json) {
-    return JSON.stringify(data);
+    return JSON.stringify(value);
   }
-  return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
 /** Where an `Output` writes its text; each function receives complete lines. */

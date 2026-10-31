@@ -10,6 +10,22 @@ const DOC_EXTRACT_TIMEOUT_MS
 
 Longest the Python doc extractor may run before doc generation fails.
 
+## SharedModuleDoc
+
+```ts
+interface SharedModuleDoc
+```
+
+The public symbols of one shared module in one language, sorted by name.
+
+## SharedSymbol
+
+```ts
+interface SharedSymbol
+```
+
+One documented public symbol of a shared module. `doc` is empty when it has no comment.
+
 ## extractSharedDocs
 
 ```ts
@@ -37,19 +53,3 @@ function renderSharedDocs(mods: SharedModuleDoc[]): GeneratedFile[]
 ```
 
 Renders `docs/shared/index.md` and one `docs/shared/<lang>/<module>.md` page per module.
-
-## SharedModuleDoc
-
-```ts
-interface SharedModuleDoc
-```
-
-The public symbols of one shared module in one language, sorted by name.
-
-## SharedSymbol
-
-```ts
-interface SharedSymbol
-```
-
-One documented public symbol of a shared module. `doc` is empty when it has no comment.

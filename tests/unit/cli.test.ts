@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type ToolContext, runTool, usageOf } from '../../shared/ts/src/cli.ts';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
-import { type ToolManifest, loadManifest } from '../../shared/ts/src/manifest.ts';
+import { ManifestError, type ToolManifest, loadManifest } from '../../shared/ts/src/manifest.ts';
 import { runOpen } from '../../shared/ts/src/run.ts';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
@@ -152,5 +152,28 @@ describe('runTool', () => {
     expect(code).toBe(ExitCode.unavailable);
     expect(streams.out).toEqual([]);
     expect(streams.err.join('')).toContain('nope');
+  });
+
+  it('exits 1 with an error line and its cause, and no stack, for an unexpected error', async () => {
+    const streams = capture();
+    const boom = new Error('boom', { cause: new Error('disk on fire') });
+    const code = await runTool(manifest, () => Promise.reject(boom), ['in.txt'], false);
+    expect(code).toBe(ExitCode.failure);
+    const err = streams.err.join('');
+    expect(err).toMatch(/^error: boom\n/);
+    expect(err).toContain('disk on fire');
+    expect(err).not.toMatch(/\n\s+at /);
+  });
+
+  it('exits 78 for a ManifestError thrown by the tool', async () => {
+    const streams = capture();
+    const code = await runTool(
+      manifest,
+      () => Promise.reject(new ManifestError('bad manifest')),
+      ['in.txt'],
+      false,
+    );
+    expect(code).toBe(ExitCode.config);
+    expect(streams.err.join('')).toBe('error: bad manifest\n');
   });
 });

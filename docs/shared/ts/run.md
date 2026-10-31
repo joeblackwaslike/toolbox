@@ -10,17 +10,6 @@ interface CapturedOutput
 
 Text read so far from each captured stream, and whether the cap cut it short.
 
-## captureOutput
-
-```ts
-function captureOutput( streams: readonly Readable[], limit: number, onOverflow: () => void, ): CapturedOutput
-```
-
-Reads `streams` as UTF-8 (a character split across chunks decodes whole) into
-`CapturedOutput.texts`, keeping at most `limit` bytes over all of them. The chunk that passes
-the cap is cut at the limit, later ones are dropped, `truncated` is set and `onOverflow` runs
-once.
-
 ## CommandError
 
 ```ts
@@ -37,6 +26,33 @@ const MAX_CAPTURE_BYTES
 ```
 
 Most bytes of output `runOpen` and `runInPty` keep from one command, over all its streams.
+
+## RunOptions
+
+```ts
+interface RunOptions
+```
+
+Options for `runOpen` and `runBounded`.
+
+## RunResult
+
+```ts
+interface RunResult
+```
+
+Result of running a command with `runOpen`.
+
+## captureOutput
+
+```ts
+function captureOutput( streams: readonly Readable[], limit: number, onOverflow: () => void, ): CapturedOutput
+```
+
+Reads `streams` as UTF-8 (a character split across chunks decodes whole) into
+`CapturedOutput.texts`, keeping at most `limit` bytes over all of them. The chunk that passes
+the cap is cut at the limit, later ones are dropped, `truncated` is set and `onOverflow` runs
+once.
 
 ## runBounded
 
@@ -63,22 +79,6 @@ output open cannot keep the call waiting. Output past `maxCaptureBytes` is dropp
 group is killed (`truncated: true`). Lookup of `command` uses the `PATH` in `env`.
 
 - @throws {Error} when the command cannot be started.
-
-## RunOptions
-
-```ts
-interface RunOptions
-```
-
-Options for `runOpen` and `runBounded`.
-
-## RunResult
-
-```ts
-interface RunResult
-```
-
-Result of running a command with `runOpen`.
 
 ## signalGroup
 

@@ -2,7 +2,8 @@ import { chmod, mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
+import { compareText } from '../../shared/ts/src/gen/files.ts';
+import { binariesOnPath, isWithin, tbxBinDir } from '../../shared/ts/src/paths.ts';
 
 const EXECUTABLE = 0o755;
 
@@ -67,5 +68,23 @@ describe('tbxBinDir', () => {
     expect(tbxBinDir({ TBX_BIN_DIR: '/x/bin', XDG_DATA_HOME: '/d', HOME: '/h' })).toBe('/x/bin');
     expect(tbxBinDir({ XDG_DATA_HOME: '/d', HOME: '/h' })).toBe('/d/tbx/bin');
     expect(tbxBinDir({ HOME: '/h' })).toBe('/h/.local/share/tbx/bin');
+  });
+});
+
+describe('isWithin', () => {
+  it('counts a child named ..foo as inside and a parent or sibling as outside', () => {
+    expect(isWithin('/a', '/a/..foo')).toBe(true);
+    expect(isWithin('/a', '/a/..foo/bar')).toBe(true);
+    expect(isWithin('/a', '/a')).toBe(true);
+    expect(isWithin('/a', '/a/../b')).toBe(false);
+    expect(isWithin('/a', '/')).toBe(false);
+    expect(isWithin('/a', '/ab')).toBe(false);
+  });
+});
+
+describe('compareText', () => {
+  it('orders by UTF-16 code unit, not by locale', () => {
+    expect(['b', 'a', 'B', '_x', 'é'].sort(compareText)).toEqual(['B', '_x', 'a', 'b', 'é']);
+    expect(compareText('a', 'a')).toBe(0);
   });
 });

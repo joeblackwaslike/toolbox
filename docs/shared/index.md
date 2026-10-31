@@ -6,21 +6,21 @@ Every tool reuses these modules. Check here before writing a helper.
 
 ## ts
 
-- [ts/cli](ts/cli.md) (defineTool, OptionValue, runTool, ToolContext, ToolRun, ToolUsage, usageOf, UsageOption)
-- [ts/errors](ts/errors.md) (ExitCode, isErrnoException, messageOf, ToolError)
+- [ts/cli](ts/cli.md) (OptionValue, ToolContext, ToolRun, ToolUsage, UsageOption, defineTool, reportError, runTool, usageOf)
+- [ts/errors](ts/errors.md) (ExitCode, ToolError, errorLines, isErrnoException, messageOf)
 - [ts/gen-parser](ts/gen-parser.md) (generateShellParser)
 - [ts/gen/completions](ts/gen/completions.md) (CompletionShell, renderCompletions)
 - [ts/gen/contract](ts/gen/contract.md) (CONTRACT_PLACEHOLDER, ContractCase, generateContractTests)
-- [ts/gen/files](ts/gen/files.md) (compareText, GeneratedFile)
+- [ts/gen/files](ts/gen/files.md) (GeneratedFile, compareText)
 - [ts/gen/index](ts/gen/index.md) (checkDrift, generateAll, loadToolManifests, syncGenerated, undocumentedSymbols, writeGenerated)
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)
-- [ts/gen/shared-docs](ts/gen/shared-docs.md) (DOC_EXTRACT_TIMEOUT_MS, extractSharedDocs, missingSharedDocs, renderSharedDocs, SharedModuleDoc, SharedSymbol)
-- [ts/gen/unit](ts/gen/unit.md) (renderSystemdTimer, renderUnit, UnitContext, UnitKind, unitLabel, UnitValidation, validateUnit, VALIDATOR_TIMEOUT_MS)
-- [ts/manifest](ts/manifest.md) (ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec)
-- [ts/output](ts/output.md) (createOutput, Output, OutputStreams, PROCESS_STREAMS)
-- [ts/paths](ts/paths.md) (binariesOnPath, EXECUTABLE_MODE, findOnPath, isWithin, PathBinary, PathEnv, PRIVATE_DIR_MODE, READABLE_MODE, tbxBinDir, xdgBaseDir)
+- [ts/gen/shared-docs](ts/gen/shared-docs.md) (DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs)
+- [ts/gen/unit](ts/gen/unit.md) (UnitContext, UnitKind, UnitValidation, VALIDATOR_TIMEOUT_MS, renderSystemdTimer, renderUnit, unitLabel, validateUnit)
+- [ts/manifest](ts/manifest.md) (ArgSpec, BUILTIN_OPTIONS, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseManifest)
+- [ts/output](ts/output.md) (Output, OutputStreams, PROCESS_STREAMS, createOutput)
+- [ts/paths](ts/paths.md) (EXECUTABLE_MODE, PRIVATE_DIR_MODE, PathBinary, PathEnv, READABLE_MODE, binariesOnPath, findOnPath, isWithin, tbxBinDir, xdgBaseDir)
 - [ts/pty](ts/pty.md) (PtyOptions, PtyResult, runInPty)
-- [ts/run](ts/run.md) (CapturedOutput, captureOutput, CommandError, MAX_CAPTURE_BYTES, runBounded, runOpen, RunOptions, RunResult, signalGroup)
+- [ts/run](ts/run.md) (CapturedOutput, CommandError, MAX_CAPTURE_BYTES, RunOptions, RunResult, captureOutput, runBounded, runOpen, signalGroup)
 
 ## py
 

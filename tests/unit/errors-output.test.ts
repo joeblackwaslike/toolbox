@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
+import { ExitCode, ToolError, errorLines } from '../../shared/ts/src/errors.ts';
 import { createOutput } from '../../shared/ts/src/output.ts';
 
 function capture(): { out: string[]; err: string[] } {
@@ -69,5 +69,22 @@ describe('createOutput', () => {
     expect(stdout).toEqual(['[1]\n']);
     expect(stderr).toEqual(['note\n']);
     expect([...out, ...err]).toEqual([]);
+  });
+
+  it.each([true, false])('result(undefined) prints null (json %s)', (json) => {
+    const stdout: string[] = [];
+    createOutput({
+      json,
+      streams: { stdout: (text) => stdout.push(text), stderr: () => 0 },
+    }).result(undefined);
+    expect(stdout).toEqual(['null\n']);
+    expect(JSON.parse(stdout.join(''))).toBeNull();
+  });
+});
+
+describe('errorLines', () => {
+  it('gives the message and then each cause in the chain', () => {
+    const error = new Error('top', { cause: new Error('middle', { cause: 'bottom' }) });
+    expect(errorLines(error)).toEqual(['error: top', '  caused by: middle', '  caused by: bottom']);
   });
 });
