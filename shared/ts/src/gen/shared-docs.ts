@@ -3,6 +3,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { z } from 'zod';
+import { messageOf } from '../errors.ts';
 import { runBounded } from '../run.ts';
 import { type GeneratedFile, compareText } from './files.ts';
 
@@ -139,8 +141,24 @@ async function extractPy(root: string): Promise<SharedModuleDoc[]> {
       timeoutMs: DOC_EXTRACT_TIMEOUT_MS,
     },
   );
-  const parsed = JSON.parse(result.stdout) as { module: string; symbols: SharedSymbol[] }[];
-  return parsed.map((mod) => ({ lang: 'py', ...mod }));
+  return parsePyModules(result.stdout).map((mod) => ({ lang: 'py', ...mod }));
+}
+
+const pyModulesSchema = z.array(
+  z.strictObject({
+    module: z.string(),
+    symbols: z.array(z.strictObject({ name: z.string(), signature: z.string(), doc: z.string() })),
+  }),
+);
+
+function parsePyModules(stdout: string): z.infer<typeof pyModulesSchema> {
+  try {
+    return pyModulesSchema.parse(JSON.parse(stdout));
+  } catch (error) {
+    throw new Error(`${PY_EXTRACTOR} printed invalid output: ${messageOf(error)}`, {
+      cause: error,
+    });
+  }
 }
 
 function shellDoc(commentLines: string[]): string {

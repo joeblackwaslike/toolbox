@@ -18,6 +18,14 @@ its own shim).
 - @param pathVariable the PATH value; defaults to `process.env.PATH`.
 - @param excludedRoots directories whose contents never count as PATH binaries.
 
+## EXECUTABLE_MODE
+
+```ts
+const EXECUTABLE_MODE
+```
+
+Mode of an installed or scaffolded executable and of every directory tbx creates.
+
 ## findOnPath
 
 ```ts
@@ -28,6 +36,15 @@ Returns the path of the first executable regular file called `name` (symlinks fo
 the directories of a PATH-style string, or `null` when no entry has one. The path is the
 PATH entry joined with `name`, not its real path.
 
+## isWithin
+
+```ts
+function isWithin(root: string, file: string): boolean
+```
+
+True when `file` is `root` or lies below it. Both are resolved first; a sibling whose name
+starts with `..` (for example `..foo`) counts as inside.
+
 ## PathBinary
 
 ```ts
@@ -36,13 +53,49 @@ interface PathBinary
 
 An executable found on PATH: its file name and the PATH entry path it was found at.
 
+## PathEnv
+
+```ts
+type PathEnv = Readonly<Record<string, string | undefined>>
+```
+
+Environment variables a path helper reads.
+
+## PRIVATE_DIR_MODE
+
+```ts
+const PRIVATE_DIR_MODE
+```
+
+Mode of the tbx state directory, which holds the install record and its lock.
+
+## READABLE_MODE
+
+```ts
+const READABLE_MODE
+```
+
+Mode of a regular file tbx writes.
+
 ## tbxBinDir
 
 ```ts
-function tbxBinDir(env: Readonly<Record<string, string | undefined>> = process.env): string
+function tbxBinDir(env: PathEnv = process.env): string
 ```
 
-The directory `tbx install` links tool binaries into: `$TBX_BIN_DIR` when set, otherwise
-`$XDG_DATA_HOME/tbx/bin`, otherwise `~/.local/share/tbx/bin`.
+The directory `tbx install` links tool binaries into: `$TBX_BIN_DIR` when it is an absolute
+path, otherwise `$XDG_DATA_HOME/tbx/bin` (see `xdgBaseDir`), otherwise `~/.local/share/tbx/bin`.
 
 - @param env the environment to read; defaults to `process.env`.
+
+## xdgBaseDir
+
+```ts
+function xdgBaseDir(env: PathEnv, variable: string, fallback: string): string
+```
+
+`env[variable]` when it is an absolute path, otherwise `<home>/<fallback>` with home from
+`env.HOME` (then the OS home). Empty and relative values are ignored, as the XDG Base
+Directory spec requires.
+
+- @example xdgBaseDir(env, 'XDG_DATA_HOME', '.local/share')

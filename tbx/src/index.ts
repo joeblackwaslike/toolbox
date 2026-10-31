@@ -10,13 +10,13 @@ import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
 import { build } from './commands/build.ts';
 import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
-import { install, uninstall } from './commands/install.ts';
+import { install, installedToolFor, uninstall } from './commands/install.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
 import { verify } from './commands/verify.ts';
-import type { TbxContext } from './context.ts';
-import { readState, recordOf, tbxPaths } from './state.ts';
+import { type TbxContext, isCi } from './context.ts';
+import { tbxPaths } from './state.ts';
 import { LANGS, type Lang } from './templates.ts';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -31,8 +31,6 @@ export interface TbxEnv {
   vars?: Readonly<Record<string, string | undefined>>;
 }
 
-const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
-
 function homeOf(variables: Readonly<Record<string, string | undefined>>): string {
   return variables.HOME === undefined || variables.HOME === '' ? homedir() : variables.HOME;
 }
@@ -44,7 +42,7 @@ function contextBase(env: TbxEnv): Omit<TbxContext, 'json' | 'out'> {
     root: env.root,
     home: homeOf(variables),
     env: variables,
-    ci: CI_VALUES.has(variables.CI ?? ''),
+    ci: isCi(variables),
     pathBinaries: () => binariesOnPath(pathVariable, [env.root, tbxBinDir(variables)]),
   };
 }
@@ -208,8 +206,8 @@ async function installedLink(argv: readonly string[], env: TbxEnv): Promise<stri
   if (RESERVED_COMMANDS.has(first)) return null;
   const variables = env.vars ?? process.env;
   const paths = tbxPaths(homeOf(variables), variables);
-  const state = await readState(paths);
-  return recordOf(state, first) === undefined ? null : path.join(paths.bin, first);
+  const tool = await installedToolFor(paths, first);
+  return tool === null ? null : path.join(paths.bin, tool);
 }
 
 function dispatch(link: string, args: readonly string[], streams: OutputStreams): number {
@@ -244,8 +242,8 @@ async function execute(
  * Runs `tbx` with `argv` (no program name) against `env.root` and returns the exit code with
  * the captured stdout and stderr, instead of writing to the process streams or exiting. Usage
  * errors and unknown flags exit 2; a `ToolError` exits with its code; an invalid manifest
- * exits 78. A first argument that is not a command but names a tool in `installed.json` runs
- * that tool's managed-bin link with the remaining arguments and inherited stdio, returning its
+ * exits 78. A first argument that is not a command but names a tool in `installed.json`, or the
+ * alias its installed `tool.toml` declares, runs that tool's managed-bin link with the remaining arguments and inherited stdio, returning its
  * exit code (128 plus the signal number when it is killed).
  */
 export async function runTbx(argv: string[], env: TbxEnv): Promise<TbxResult> {

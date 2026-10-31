@@ -2,9 +2,15 @@ import { randomBytes } from 'node:crypto';
 import { link, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
+import { ExitCode, ToolError, isErrnoException, messageOf } from '../../shared/ts/src/errors.ts';
 import { NAME_PATTERN } from '../../shared/ts/src/manifest.ts';
-import { tbxBinDir } from '../../shared/ts/src/paths.ts';
+import {
+  EXECUTABLE_MODE,
+  PRIVATE_DIR_MODE,
+  READABLE_MODE,
+  tbxBinDir,
+  xdgBaseDir,
+} from '../../shared/ts/src/paths.ts';
 
 /** Environment variables the install layout reads (`XDG_DATA_HOME`, `XDG_STATE_HOME`, `TBX_BIN_DIR`). */
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -29,10 +35,6 @@ const DEFAULT_LOCK_TIMEOUT_MS = 60_000;
 const SUFFIX_BYTES = 4;
 const TOKEN_BYTES = 8;
 
-function nonEmpty(value: string | undefined): string | undefined {
-  return value === '' ? undefined : value;
-}
-
 /** A copy of `env` with `name` set to `value`. */
 export function withVariable(env: Env, name: string, value: string): Env {
   return { ...env, [name]: value };
@@ -41,15 +43,17 @@ export function withVariable(env: Env, name: string, value: string): Env {
 /**
  * Resolves the install layout for `home`: data under `$XDG_DATA_HOME` (default
  * `<home>/.local/share`), state under `$XDG_STATE_HOME` (default `<home>/.local/state`) and links
- * in `tbxBinDir`, all read from `env` and never from `process.env`.
+ * in `tbxBinDir`, all read from `env` and never from `process.env`. Relative XDG values are
+ * ignored (see `xdgBaseDir`).
  */
 export function tbxPaths(home: string, env: Env): TbxPaths {
-  const data = path.join(nonEmpty(env.XDG_DATA_HOME) ?? path.join(home, '.local/share'), 'tbx');
-  const state = path.join(nonEmpty(env.XDG_STATE_HOME) ?? path.join(home, '.local/state'), 'tbx');
+  const homeEnv = withVariable(env, 'HOME', home);
+  const data = path.join(xdgBaseDir(homeEnv, 'XDG_DATA_HOME', '.local/share'), 'tbx');
+  const state = path.join(xdgBaseDir(homeEnv, 'XDG_STATE_HOME', '.local/state'), 'tbx');
   return {
     tools: path.join(data, 'tools'),
     staging: path.join(data, 'staging'),
-    bin: tbxBinDir(withVariable(env, 'HOME', home)),
+    bin: tbxBinDir(homeEnv),
     stateFile: path.join(state, 'installed.json'),
     lockFile: path.join(state, 'install.lock'),
   };
@@ -92,7 +96,7 @@ export function recordOf(
 }
 
 function isMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  return isErrnoException(error) && error.code === 'ENOENT';
 }
 
 /**
@@ -112,7 +116,7 @@ export async function readState(paths: TbxPaths): Promise<InstallState> {
     return stateSchema.parse(JSON.parse(text));
   } catch (error) {
     throw new ToolError(
-      `${paths.stateFile} is not a valid install record: ${error instanceof Error ? error.message : String(error)}`,
+      `${paths.stateFile} is not a valid install record: ${messageOf(error)}`,
       ExitCode.config,
     );
   }
@@ -125,12 +129,17 @@ function temporaryName(file: string): string {
 /**
  * Replaces `file` with `content` atomically: the bytes are written and flushed to a temp file in
  * the same directory, which is then renamed over `file`, so readers see the old or the new
- * content and never a partial write.
+ * content and never a partial write. Missing parent directories are created with `dirMode`
+ * (default 0755) and the file gets mode 0644.
  */
-export async function writeFileAtomic(file: string, content: string | Uint8Array): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
+export async function writeFileAtomic(
+  file: string,
+  content: string | Uint8Array,
+  options: { dirMode?: number } = {},
+): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true, mode: options.dirMode ?? EXECUTABLE_MODE });
   const temporary = temporaryName(file);
-  const handle = await open(temporary, 'wx');
+  const handle = await open(temporary, 'wx', READABLE_MODE);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -147,60 +156,96 @@ export async function writeFileAtomic(file: string, content: string | Uint8Array
 
 /** Writes the install record with `writeFileAtomic`. */
 export async function writeState(paths: TbxPaths, state: InstallState): Promise<void> {
-  await writeFileAtomic(paths.stateFile, `${JSON.stringify(state, null, 2)}\n`);
+  await writeFileAtomic(paths.stateFile, `${JSON.stringify(state, null, 2)}\n`, {
+    dirMode: PRIVATE_DIR_MODE,
+  });
 }
 
-interface LockOwner {
-  pid: number;
-  createdAt: string;
+/** Test-only interleaving points inside `withLock`; the CLI never sets them. */
+export interface LockHooks {
+  /** Awaited after a lock was judged stale and before it is claimed. */
+  beforeStaleClaim?: () => Promise<void>;
 }
+
+const lockOwnerSchema = z.object({ pid: z.number().int(), createdAt: z.string() });
+
+type LockOwner = z.infer<typeof lockOwnerSchema>;
 
 function isRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    return isErrnoException(error) && error.code === 'EPERM';
+  }
+}
+
+function parseOwner(raw: string): LockOwner | null {
+  try {
+    const parsed = lockOwnerSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
 }
 
 async function readOwner(file: string): Promise<{ raw: string; owner: LockOwner | null } | null> {
-  let raw: string;
+  const raw = await readIfExists(file);
+  return raw === null ? null : { raw, owner: parseOwner(raw) };
+}
+
+async function readIfExists(file: string): Promise<string | null> {
   try {
-    raw = await readFile(file, 'utf8');
+    return await readFile(file, 'utf8');
   } catch (error) {
     if (isMissing(error)) return null;
     throw error;
-  }
-  try {
-    const owner = JSON.parse(raw) as LockOwner;
-    return { raw, owner: Number.isInteger(owner.pid) ? owner : null };
-  } catch {
-    return { raw, owner: null };
   }
 }
 
 async function tryAcquire(file: string, body: string): Promise<boolean> {
   const temporary = temporaryName(file);
-  await writeFileAtomic(temporary, body);
+  await writeFileAtomic(temporary, body, { dirMode: PRIVATE_DIR_MODE });
   try {
     await link(temporary, file);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    if (isErrnoException(error) && error.code === 'EEXIST') return false;
     throw error;
   } finally {
     await rm(temporary, { force: true });
   }
 }
 
-async function removeIfStale(file: string): Promise<LockOwner | null> {
+async function restoreLock(claimed: string, file: string): Promise<void> {
+  try {
+    await link(claimed, file);
+  } catch (error) {
+    if (!(isErrnoException(error) && error.code === 'EEXIST')) throw error;
+  }
+}
+
+async function claimStale(file: string, seen: string): Promise<void> {
+  const claimed = `${file}.stale.${randomBytes(TOKEN_BYTES).toString('hex')}`;
+  try {
+    await rename(file, claimed);
+  } catch (error) {
+    if (isMissing(error)) return;
+    throw error;
+  }
+  try {
+    if ((await readIfExists(claimed)) !== seen) await restoreLock(claimed, file);
+  } finally {
+    await rm(claimed, { force: true });
+  }
+}
+
+async function removeIfStale(file: string, hooks: LockHooks): Promise<LockOwner | null> {
   const seen = await readOwner(file);
   if (seen === null) return null;
   if (seen.owner !== null && isRunning(seen.owner.pid)) return seen.owner;
-  // ponytail: a second waiter can re-read between our read and rm; per-lock fencing tokens if that ever bites.
-  const again = await readOwner(file);
-  if (again?.raw === seen.raw) await rm(file, { force: true });
+  await hooks.beforeStaleClaim?.();
+  await claimStale(file, seen.raw);
   return null;
 }
 
@@ -208,8 +253,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function acquire(file: string, timeoutMs: number): Promise<string> {
-  await mkdir(path.dirname(file), { recursive: true });
+async function acquire(file: string, timeoutMs: number, hooks: LockHooks): Promise<string> {
+  await mkdir(path.dirname(file), { recursive: true, mode: PRIVATE_DIR_MODE });
   const body = JSON.stringify({
     pid: process.pid,
     createdAt: new Date().toISOString(),
@@ -219,7 +264,7 @@ async function acquire(file: string, timeoutMs: number): Promise<string> {
   let wait = LOCK_POLL_START_MS;
   for (;;) {
     if (await tryAcquire(file, body)) return body;
-    const owner = await removeIfStale(file);
+    const owner = await removeIfStale(file, hooks);
     if (owner === null) continue;
     if (Date.now() >= deadline) {
       throw new ToolError(
@@ -232,25 +277,37 @@ async function acquire(file: string, timeoutMs: number): Promise<string> {
   }
 }
 
+async function release(file: string, mine: string): Promise<void> {
+  try {
+    if ((await readIfExists(file)) === mine) await rm(file, { force: true });
+  } catch {
+    return;
+  }
+}
+
 /**
  * Runs `body` while holding the lock file at `file`, so installs, updates and uninstalls never
  * overlap. The lock is created atomically (a fully written temp file hard-linked into place)
  * and holds the owner's pid and start time. A second caller polls with backoff for up to
- * `timeoutMs`; a lock whose owner pid is no longer running is taken over. The lock is removed
- * afterwards only if it is still ours.
+ * `timeoutMs`. A lock whose owner pid is no longer running is claimed by renaming it aside and
+ * deleted only if the renamed file is still the dead owner's; a live lock renamed by mistake is
+ * linked back without overwriting anything. The lock is removed afterwards only if it is still
+ * ours; a failure while removing it never replaces the result or error of `body` (a lock left
+ * behind holds a pid that is no longer running, so the next caller takes it over).
  *
+ * @param hooks test-only interleaving points; leave unset.
  * @throws {ToolError} with exit code 69 when the lock is still held after `timeoutMs`.
  */
 export async function withLock<T>(
   file: string,
   body: () => Promise<T>,
   timeoutMs: number = DEFAULT_LOCK_TIMEOUT_MS,
+  hooks: LockHooks = {},
 ): Promise<T> {
-  const mine = await acquire(file, timeoutMs);
+  const mine = await acquire(file, timeoutMs, hooks);
   try {
     return await body();
   } finally {
-    const current = await readOwner(file);
-    if (current?.raw === mine) await rm(file, { force: true });
+    await release(file, mine);
   }
 }

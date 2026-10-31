@@ -5,6 +5,7 @@ import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { type GeneratedFile, compareText } from '../../shared/ts/src/gen/files.ts';
 import { syncGenerated } from '../../shared/ts/src/gen/index.ts';
 import { NAME_PATTERN } from '../../shared/ts/src/manifest.ts';
+import { EXECUTABLE_MODE } from '../../shared/ts/src/paths.ts';
 
 const TEMPLATES = path.join(path.dirname(fileURLToPath(import.meta.url)), '../templates');
 const SUFFIX = '.tmpl';
@@ -81,8 +82,6 @@ export async function pathExists(file: string): Promise<boolean> {
   }
 }
 
-const EXECUTABLE = 0o755;
-
 async function rollBack(created: readonly string[]): Promise<void> {
   for (const target of [...created].reverse()) await rm(target, { recursive: true, force: true });
 }
@@ -94,7 +93,7 @@ async function writeTracked(
 ): Promise<void> {
   for (const file of files) {
     const target = path.join(root, file.path);
-    const madeDir = await mkdir(path.dirname(target), { recursive: true });
+    const madeDir = await mkdir(path.dirname(target), { recursive: true, mode: EXECUTABLE_MODE });
     if (madeDir !== undefined) created.push(madeDir);
     await writeFile(target, file.content, { flag: 'wx' });
     created.push(target);
@@ -123,7 +122,7 @@ export async function scaffold(
   const created: string[] = [];
   try {
     await writeTracked(root, files, created);
-    for (const file of executables) await chmod(path.join(root, file), EXECUTABLE);
+    for (const file of executables) await chmod(path.join(root, file), EXECUTABLE_MODE);
     await syncGenerated(root);
   } catch (error) {
     await rollBack(created);

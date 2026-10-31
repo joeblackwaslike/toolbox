@@ -29,7 +29,7 @@
 - [ts/manifest](docs/shared/ts/manifest.md): ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec
 - [py/output](docs/shared/py/output.md): Output
 - [ts/output](docs/shared/ts/output.md): createOutput, Output, OutputStreams, PROCESS_STREAMS
-- [ts/paths](docs/shared/ts/paths.md): binariesOnPath, findOnPath, PathBinary, tbxBinDir
+- [ts/paths](docs/shared/ts/paths.md): binariesOnPath, EXECUTABLE_MODE, findOnPath, isWithin, PathBinary, PathEnv, PRIVATE_DIR_MODE, READABLE_MODE, tbxBinDir, xdgBaseDir
 - [ts/pty](docs/shared/ts/pty.md): PtyOptions, PtyResult, runInPty
 - [py/retry](docs/shared/py/retry.md): retry_policy, with_retry
 - [ts/run](docs/shared/ts/run.md): CommandError, runBounded, runOpen, RunOptions, RunResult, signalGroup

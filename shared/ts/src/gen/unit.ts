@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { isErrnoException } from '../errors.ts';
 import type { ToolManifest, UnitSpec } from '../manifest.ts';
 import { runBounded } from '../run.ts';
 
@@ -203,7 +204,7 @@ export function renderSystemdTimer(m: ToolManifest, ctx: UnitContext): string {
 }
 
 function isMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  return isErrnoException(error) && error.code === 'ENOENT';
 }
 
 function failure(error: unknown): string {

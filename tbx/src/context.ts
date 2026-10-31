@@ -1,6 +1,13 @@
 import type { Output } from '../../shared/ts/src/output.ts';
 import type { PathBinary } from '../../shared/ts/src/paths.ts';
 
+const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
+
+/** True when `env.CI` is `1` or `true`. */
+export function isCi(env: Readonly<Record<string, string | undefined>>): boolean {
+  return CI_VALUES.has(env.CI ?? '');
+}
+
 /** What every `tbx` command receives once its command line has parsed. */
 export interface TbxContext {
   /** Repo root holding `tools/`, `shared/` and `docs/`. */

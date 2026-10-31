@@ -4,17 +4,17 @@ import path from 'node:path';
 import { build as esbuild } from 'esbuild';
 import { z } from 'zod';
 import { generateShellParser } from '../../../shared/sh/gen-parser.ts';
-import { ExitCode, ToolError } from '../../../shared/ts/src/errors.ts';
+import { ExitCode, ToolError, isErrnoException, messageOf } from '../../../shared/ts/src/errors.ts';
 import { compareText } from '../../../shared/ts/src/gen/files.ts';
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
 import { NAME_PATTERN, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
+import { EXECUTABLE_MODE } from '../../../shared/ts/src/paths.ts';
 import { CommandError, runBounded } from '../../../shared/ts/src/run.ts';
 import { packTar, sha256 } from '../archive.ts';
 import type { TbxContext } from '../context.ts';
 import { assertToolName, withVariable, writeFileAtomic } from '../state.ts';
 
 const INDEX_FILE = 'index.json';
-const EXECUTABLE = 0o755;
 const READABLE = 0o644;
 const FIXED_MTIME = new Date('2000-01-01T00:00:00Z');
 const MS_PER_SECOND = 1000;
@@ -68,7 +68,7 @@ export async function readIndex(file: string): Promise<IndexEntry[]> {
   try {
     text = await readFile(file, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isErrnoException(error) && error.code === 'ENOENT') {
       throw new ToolError(`no release index at ${file}; run \`tbx build\` first`);
     }
     throw error;
@@ -77,7 +77,7 @@ export async function readIndex(file: string): Promise<IndexEntry[]> {
     return indexSchema.parse(JSON.parse(text)).tools;
   } catch (error) {
     throw new ToolError(
-      `${file} is not a valid release index: ${error instanceof Error ? error.message : String(error)}`,
+      `${file} is not a valid release index: ${messageOf(error)}`,
       ExitCode.config,
     );
   }
@@ -266,9 +266,7 @@ async function bundle(root: string, m: ToolManifest): Promise<Buffer> {
     return await (m.language === 'sh' ? bundleSh(root, m) : bundlePy(root, m));
   } catch (error) {
     if (error instanceof ToolError) throw error;
-    throw new ToolError(
-      `build of ${m.name} failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new ToolError(`build of ${m.name} failed: ${messageOf(error)}`);
   }
 }
 
@@ -293,10 +291,10 @@ export async function buildTool(root: string, name: string, outDir: string): Pro
     throw new ToolError(`${toml} names tool "${m.name}", expected "${name}"`, ExitCode.config);
   }
   const archive = packTar([
-    { path: `bin/${name}`, content: await bundle(root, m), mode: EXECUTABLE },
+    { path: `bin/${name}`, content: await bundle(root, m), mode: EXECUTABLE_MODE },
     { path: 'tool.toml', content: await readFile(toml), mode: READABLE },
   ]);
-  await mkdir(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true, mode: EXECUTABLE_MODE });
   const artifact = path.join(outDir, `${name}-${m.version}.tar.gz`);
   await writeFileAtomic(artifact, archive);
   return { artifact, sha256: sha256(archive), version: m.version };

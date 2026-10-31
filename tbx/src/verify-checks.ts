@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { messageOf } from '../../shared/ts/src/errors.ts';
 import { compareText } from '../../shared/ts/src/gen/files.ts';
 import { findOnPath } from '../../shared/ts/src/paths.ts';
 import { runBounded, runOpen } from '../../shared/ts/src/run.ts';
@@ -85,7 +86,7 @@ async function runCheck(
     const output = tail([result.stdout, result.stderr].join('\n'));
     return `${line} (${why})\n${output}`;
   } catch (error) {
-    return `${line}\ncannot run: ${error instanceof Error ? error.message : String(error)}`;
+    return `${line}\ncannot run: ${messageOf(error)}`;
   }
 }
 

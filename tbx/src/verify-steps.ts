@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { usageOf } from '../../shared/ts/src/cli.ts';
+import { messageOf } from '../../shared/ts/src/errors.ts';
 import {
   CONTRACT_PLACEHOLDER,
   type ContractCase,
@@ -37,10 +38,6 @@ const SIGNAL_EXIT_BASE = 128;
 const CANNOT_EXECUTE = 126;
 const NOT_FOUND = 127;
 const NOT_RUNNABLE: ReadonlySet<number> = new Set([CANNOT_EXECUTE, NOT_FOUND]);
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function runInstalled(
   installed: Installed,

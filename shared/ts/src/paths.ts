@@ -5,27 +5,58 @@ import { compareText } from './gen/files.ts';
 
 const EXECUTE_BITS = 0o111;
 
+/** Mode of an installed or scaffolded executable and of every directory tbx creates. */
+export const EXECUTABLE_MODE = 0o755;
+/** Mode of a regular file tbx writes. */
+export const READABLE_MODE = 0o644;
+/** Mode of the tbx state directory, which holds the install record and its lock. */
+export const PRIVATE_DIR_MODE = 0o700;
+
+/** Environment variables a path helper reads. */
+export type PathEnv = Readonly<Record<string, string | undefined>>;
+
 /** An executable found on PATH: its file name and the PATH entry path it was found at. */
 export interface PathBinary {
   name: string;
   path: string;
 }
 
-function nonEmpty(value: string | undefined): string | undefined {
-  return value === '' ? undefined : value;
+function absoluteOrUndefined(value: string | undefined): string | undefined {
+  return value !== undefined && path.isAbsolute(value) ? value : undefined;
 }
 
 /**
- * The directory `tbx install` links tool binaries into: `$TBX_BIN_DIR` when set, otherwise
- * `$XDG_DATA_HOME/tbx/bin`, otherwise `~/.local/share/tbx/bin`.
+ * `env[variable]` when it is an absolute path, otherwise `<home>/<fallback>` with home from
+ * `env.HOME` (then the OS home). Empty and relative values are ignored, as the XDG Base
+ * Directory spec requires.
+ *
+ * @example xdgBaseDir(env, 'XDG_DATA_HOME', '.local/share')
+ */
+export function xdgBaseDir(env: PathEnv, variable: string, fallback: string): string {
+  const home = env.HOME === undefined || env.HOME === '' ? homedir() : env.HOME;
+  return absoluteOrUndefined(env[variable]) ?? path.join(home, fallback);
+}
+
+/**
+ * The directory `tbx install` links tool binaries into: `$TBX_BIN_DIR` when it is an absolute
+ * path, otherwise `$XDG_DATA_HOME/tbx/bin` (see `xdgBaseDir`), otherwise `~/.local/share/tbx/bin`.
  *
  * @param env the environment to read; defaults to `process.env`.
  */
-export function tbxBinDir(env: Readonly<Record<string, string | undefined>> = process.env): string {
-  const override = nonEmpty(env.TBX_BIN_DIR);
-  if (override !== undefined) return override;
-  const dataHome = nonEmpty(env.XDG_DATA_HOME) ?? path.join(env.HOME ?? homedir(), '.local/share');
-  return path.join(dataHome, 'tbx/bin');
+export function tbxBinDir(env: PathEnv = process.env): string {
+  return (
+    absoluteOrUndefined(env.TBX_BIN_DIR) ??
+    path.join(xdgBaseDir(env, 'XDG_DATA_HOME', '.local/share'), 'tbx/bin')
+  );
+}
+
+/**
+ * True when `file` is `root` or lies below it. Both are resolved first; a sibling whose name
+ * starts with `..` (for example `..foo`) counts as inside.
+ */
+export function isWithin(root: string, file: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(file));
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 async function resolved(file: string): Promise<string | null> {
@@ -37,13 +68,10 @@ async function resolved(file: string): Promise<string | null> {
 }
 
 function isInside(file: string, roots: readonly string[]): boolean {
-  return roots.some((root) => {
-    const relative = path.relative(root, file);
-    return !relative.startsWith('..') && !path.isAbsolute(relative);
-  });
+  return roots.some((root) => isWithin(root, file));
 }
 
-async function isExecutableFile(file: string): Promise<boolean> {
+async function hasAnyExecuteBit(file: string): Promise<boolean> {
   try {
     const info = await stat(file);
     return info.isFile() && (info.mode & EXECUTE_BITS) !== 0;
@@ -71,7 +99,7 @@ async function binariesIn(dir: string, excluded: readonly string[]): Promise<Pat
     const file = path.join(dir, name);
     const target = await resolved(file);
     if (target === null || isInside(target, excluded)) continue;
-    if (await isExecutableFile(file)) found.push({ name, path: file });
+    if (await hasAnyExecuteBit(file)) found.push({ name, path: file });
   }
   return found;
 }
@@ -84,7 +112,7 @@ async function binariesIn(dir: string, excluded: readonly string[]): Promise<Pat
 export async function findOnPath(name: string, pathVariable: string): Promise<string | null> {
   for (const dir of pathVariable.split(path.delimiter).filter((entry) => entry !== '')) {
     const file = path.join(dir, name);
-    if (await isExecutableFile(file)) return file;
+    if (await hasAnyExecuteBit(file)) return file;
   }
   return null;
 }

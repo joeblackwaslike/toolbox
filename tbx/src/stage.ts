@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
+import { ExitCode, ToolError, messageOf } from '../../shared/ts/src/errors.ts';
 import {
   renderSystemdTimer,
   renderUnit,
@@ -8,18 +8,16 @@ import {
   validateUnit,
 } from '../../shared/ts/src/gen/unit.ts';
 import { ManifestError, type ToolManifest, parseManifest } from '../../shared/ts/src/manifest.ts';
+import { EXECUTABLE_MODE, READABLE_MODE } from '../../shared/ts/src/paths.ts';
 import { type TarMember, unpackTar } from './archive.ts';
 import type { IndexEntry } from './commands/build.ts';
+import { isCi } from './context.ts';
 import type { Env } from './state.ts';
 
 /** File in each version directory holding the sha256 of the artifact it came from. */
 export const ARTIFACT_MARKER = 'artifact.sha256';
-/** Mode of an installed binary. */
-export const EXECUTABLE = 0o755;
 const MANIFEST_FILE = 'tool.toml';
-const READABLE = 0o644;
 const REGULAR_FILE = '0';
-const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
 /** The `platforms` value of the machine this runs on. */
 export const CURRENT_PLATFORM = process.platform === 'darwin' ? 'macos' : 'linux';
 
@@ -31,10 +29,6 @@ export interface StageOptions {
   env?: Env;
   /** Receives a skipped-validator warning; defaults to stderr. */
   warn?: (message: string) => void;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function unpack(bytes: Buffer): TarMember[] {
@@ -130,7 +124,7 @@ async function renderUnits(
     throw new ToolError(`unit for ${m.name} is invalid: ${result.message}`, ExitCode.config);
   }
   if (result.skipped) {
-    if (CI_VALUES.has((options.env ?? process.env).CI ?? '')) {
+    if (isCi(options.env ?? process.env)) {
       throw new ToolError(
         `cannot validate the unit for ${m.name}: ${result.message}`,
         ExitCode.unavailable,
@@ -139,9 +133,9 @@ async function renderUnits(
     const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
     warn(`warning: unit for ${m.name} not validated: ${result.message}`);
   }
-  await mkdir(path.join(stage, 'units'));
+  await mkdir(path.join(stage, 'units'), { mode: EXECUTABLE_MODE });
   for (const [file, content] of files) {
-    await writeFile(path.join(stage, 'units', file), content, { flag: 'wx' });
+    await writeFile(path.join(stage, 'units', file), content, { flag: 'wx', mode: READABLE_MODE });
   }
 }
 
@@ -165,12 +159,15 @@ export async function stageArtifact(
   const files = checkMembers(unpack(bytes), entry.name);
   const toml = files.get(MANIFEST_FILE) ?? Buffer.alloc(0);
   const m = artifactManifest(toml.toString('utf8'), entry);
-  await mkdir(path.join(stage, 'bin'));
+  await mkdir(path.join(stage, 'bin'), { mode: EXECUTABLE_MODE });
   const bin = path.join(stage, 'bin', entry.name);
   await writeFile(bin, files.get(`bin/${entry.name}`) ?? Buffer.alloc(0), { flag: 'wx' });
-  await chmod(bin, EXECUTABLE);
-  await writeFile(path.join(stage, MANIFEST_FILE), toml, { flag: 'wx', mode: READABLE });
-  await writeFile(path.join(stage, ARTIFACT_MARKER), `${entry.sha256}\n`, { flag: 'wx' });
+  await chmod(bin, EXECUTABLE_MODE);
+  await writeFile(path.join(stage, MANIFEST_FILE), toml, { flag: 'wx', mode: READABLE_MODE });
+  await writeFile(path.join(stage, ARTIFACT_MARKER), `${entry.sha256}\n`, {
+    flag: 'wx',
+    mode: READABLE_MODE,
+  });
   await renderUnits(m, stage, bin, binPath, options);
   return m;
 }

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isErrnoException } from '../errors.ts';
 import { ManifestError, loadManifest } from '../manifest.ts';
 import type { ToolManifest } from '../manifest.ts';
+import { EXECUTABLE_MODE } from '../paths.ts';
 import { renderCompletions } from './completions.ts';
 import { type GeneratedFile, compareText } from './files.ts';
 import { renderCatalog, renderToolReadme } from './readme.ts';
@@ -138,7 +139,10 @@ async function buildFiles(
 /** Writes generated files under `root`, creating directories as needed. */
 export async function writeGenerated(root: string, files: GeneratedFile[]): Promise<void> {
   for (const file of files) {
-    await mkdir(path.dirname(path.join(root, file.path)), { recursive: true });
+    await mkdir(path.dirname(path.join(root, file.path)), {
+      recursive: true,
+      mode: EXECUTABLE_MODE,
+    });
     await writeFile(path.join(root, file.path), file.content);
   }
 }

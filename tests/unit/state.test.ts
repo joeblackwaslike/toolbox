@@ -1,0 +1,96 @@
+import { spawnSync } from 'node:child_process';
+import { chmod, mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { tbxPaths, withLock } from '../../tbx/src/state.ts';
+
+function deadPid(): number {
+  return spawnSync('true').pid ?? 999_999;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function staleLock(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
+  const file = join(dir, 'install.lock');
+  await writeFile(file, JSON.stringify({ pid: deadPid(), createdAt: new Date().toISOString() }));
+  return file;
+}
+
+describe('withLock', () => {
+  it('two waiters racing a stale lock never hold it at the same time', async () => {
+    const file = await staleLock();
+    let active = 0;
+    let maxActive = 0;
+    const body = async (): Promise<void> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await delay(150);
+      active -= 1;
+    };
+    let releaseFirst: () => void = () => undefined;
+    const firstPaused = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstAtClaim: () => void = () => undefined;
+    const firstReachedClaim = new Promise<void>((resolve) => {
+      firstAtClaim = resolve;
+    });
+    let paused = false;
+    const first = withLock(file, body, 3000, {
+      beforeStaleClaim: async () => {
+        if (paused) return;
+        paused = true;
+        firstAtClaim();
+        await firstPaused;
+      },
+    });
+    await firstReachedClaim;
+    const second = withLock(
+      file,
+      async () => {
+        releaseFirst();
+        await body();
+      },
+      3000,
+    );
+    await Promise.all([first, second]);
+    expect(maxActive).toBe(1);
+    expect((await readdir(dirname(file))).filter((name) => name.includes('stale'))).toEqual([]);
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "an EACCES while removing the lock does not replace the body's error",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
+      const lockDir = join(dir, 'state');
+      await mkdir(lockDir);
+      const file = join(lockDir, 'install.lock');
+      try {
+        await expect(
+          withLock(file, async () => {
+            await chmod(lockDir, 0o000);
+            throw new Error('body failed');
+          }),
+        ).rejects.toThrow('body failed');
+      } finally {
+        await chmod(lockDir, 0o755);
+      }
+    },
+  );
+});
+
+describe('tbxPaths', () => {
+  it('ignores relative XDG values, as the XDG spec requires', () => {
+    const paths = tbxPaths('/home/u', {
+      XDG_DATA_HOME: 'relative/data',
+      XDG_STATE_HOME: './state',
+    });
+    expect(paths.tools).toBe('/home/u/.local/share/tbx/tools');
+    expect(paths.bin).toBe('/home/u/.local/share/tbx/bin');
+    expect(paths.stateFile).toBe('/home/u/.local/state/tbx/installed.json');
+  });
+});

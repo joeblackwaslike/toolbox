@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ExitCode, ToolError } from '../../../shared/ts/src/errors.ts';
+import { ExitCode, ToolError, messageOf } from '../../../shared/ts/src/errors.ts';
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
 import type { ToolManifest } from '../../../shared/ts/src/manifest.ts';
 import { tbxBinDir } from '../../../shared/ts/src/paths.ts';
@@ -44,10 +44,6 @@ const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
 
 function discard(): void {
   /* The units step reports a skipped validator itself. */
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function buildAndInstall(

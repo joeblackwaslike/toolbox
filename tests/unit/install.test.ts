@@ -1,5 +1,15 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TarMember } from '../../tbx/src/archive.ts';
@@ -15,6 +25,7 @@ import {
   sandbox,
   tamper,
 } from '../helpers/release.ts';
+import { REPO } from '../helpers/roots.ts';
 
 const NO_ENV = {};
 
@@ -44,6 +55,10 @@ async function writeLock(pid: number): Promise<void> {
 function deadPid(): number {
   const child = spawnSync('true');
   return child.pid ?? 999_999;
+}
+
+async function lstatOrNull(file: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {
+  return lstat(file).catch(() => null);
 }
 
 function delay(ms: number): Promise<void> {
@@ -290,5 +305,79 @@ describe('uninstallTool', () => {
     await expect(uninstallTool({ name: TOOL, home: box.home, env: NO_ENV })).rejects.toThrow(
       /hello is not installed/,
     );
+  });
+});
+
+describe('aliases', () => {
+  const alias = 'hi';
+  const aliasLink = (): string => join(dirname(paths.link), alias);
+
+  it('install links the alias to the same binary and uninstall removes it', async () => {
+    await install(await publish(box, '1.0.0', members('1.0.0', `alias = "${alias}"`)));
+    expect(runBinary(aliasLink())).toBe('hello 1.0.0');
+    expect(await readlink(aliasLink())).toBe(join(paths.tools, '1.0.0', 'bin', TOOL));
+    await uninstallTool({ name: TOOL, home: box.home, env: NO_ENV });
+    expect(await exists(aliasLink())).toBe(false);
+    expect(await lstatOrNull(aliasLink())).toBeNull();
+  });
+
+  it("refuses an alias that is another installed tool's name", async () => {
+    const other = await publish(box, '1.0.0', members('1.0.0', '', 'other'), 'other');
+    await installTool({ name: 'other', index: other, home: box.home, env: NO_ENV });
+    const index = await publish(box, '1.0.0', members('1.0.0', 'alias = "other"'));
+    await expect(install(index)).rejects.toMatchObject({ code: 78 });
+    expect(runBinary(join(dirname(paths.link), 'other'))).toBe('hello 1.0.0');
+    expect(await readlink(join(dirname(paths.link), 'other'))).toContain('/other/1.0.0/');
+    expect(await exists(paths.link)).toBe(false);
+  });
+});
+
+describe('links the install does not own', () => {
+  it('refuses to replace a regular file in the bin directory (exit 78)', async () => {
+    const bin = join(box.home, 'shared-bin');
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, TOOL), '#!/bin/sh\necho mine\n', { mode: 0o755 });
+    const env = { TBX_BIN_DIR: bin };
+    const index = await publish(box, '1.0.0');
+    const error = await installTool({ name: TOOL, index, home: box.home, env }).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toMatchObject({ code: 78 });
+    expect(String(error)).toMatch(/not a tbx link/);
+    expect(runBinary(join(bin, TOOL))).toBe('mine');
+  });
+
+  it('refuses a symlink that points outside the tool directory', async () => {
+    await mkdir(dirname(paths.link), { recursive: true });
+    await symlink('/bin/echo', paths.link);
+    await expect(install(await publish(box, '1.0.0'))).rejects.toMatchObject({ code: 78 });
+    expect(await readlink(paths.link)).toBe('/bin/echo');
+  });
+});
+
+describe('modes under a permissive umask', () => {
+  it('creates no group- or world-writable directory or file', async () => {
+    const index = await publish(box, '1.0.0', members('1.0.0', 'alias = "hi"'));
+    const run = spawnSync(
+      'sh',
+      [
+        '-c',
+        'umask 000 && exec bun tests/helpers/fault-install.ts install "$1" "$2" none "$3"',
+        'sh',
+        TOOL,
+        box.home,
+        index,
+      ],
+      { cwd: REPO, encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } },
+    );
+    expect(run.status, run.stderr).toBe(0);
+    const writable: string[] = [];
+    for (const entry of await readdir(box.home, { recursive: true, withFileTypes: true })) {
+      const file = join(entry.parentPath, entry.name);
+      const info = await lstat(file);
+      if (!info.isSymbolicLink() && (info.mode & 0o022) !== 0) writable.push(file);
+    }
+    expect(writable).toEqual([]);
+    expect((await stat(join(box.home, '.local/state/tbx'))).mode & 0o777).toBe(0o700);
   });
 });

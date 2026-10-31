@@ -1,4 +1,5 @@
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -10,11 +11,12 @@ import {
   symlink,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { ExitCode, ToolError } from '../../../shared/ts/src/errors.ts';
-import type { ToolManifest } from '../../../shared/ts/src/manifest.ts';
+import { ExitCode, ToolError, isErrnoException } from '../../../shared/ts/src/errors.ts';
+import { ManifestError, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
+import { EXECUTABLE_MODE, isWithin } from '../../../shared/ts/src/paths.ts';
 import { sha256 } from '../archive.ts';
 import type { TbxContext } from '../context.ts';
-import { ARTIFACT_MARKER, EXECUTABLE, stageArtifact } from '../stage.ts';
+import { ARTIFACT_MARKER, stageArtifact } from '../stage.ts';
 import {
   type Env,
   type TbxPaths,
@@ -71,7 +73,7 @@ function envOf(options: { env?: Env }): Env {
 function artifactPath(index: string, entry: IndexEntry): string {
   const base = path.dirname(path.resolve(index));
   const file = path.resolve(base, entry.artifact);
-  if (path.isAbsolute(entry.artifact) || path.relative(base, file).startsWith('..')) {
+  if (path.isAbsolute(entry.artifact) || !isWithin(base, file)) {
     throw new ToolError(
       `${index}: artifact for ${entry.name} must stay inside the index directory`,
       ExitCode.config,
@@ -92,7 +94,7 @@ async function readText(file: string): Promise<string | null> {
     const text = await readFile(file, 'utf8');
     return text.trim();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (isErrnoException(error) && error.code === 'ENOENT') return null;
     throw error;
   }
 }
@@ -109,7 +111,7 @@ async function moveDir(from: string, to: string): Promise<void> {
   try {
     await rename(from, to);
   } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
+    const code = isErrnoException(error) ? error.code : undefined;
     if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
     throw new ToolError(`cannot move ${from} to ${to}: the target already exists (${code})`);
   }
@@ -121,17 +123,17 @@ async function removeAside(
   options: { faultAt?: FaultPoint } = {},
 ): Promise<void> {
   if (!(await pathExists(dir))) return;
-  await mkdir(staging, { recursive: true });
+  await mkdir(staging, { recursive: true, mode: EXECUTABLE_MODE });
   const aside = await mkdtemp(path.join(staging, 'removed-'));
   await moveDir(dir, path.join(aside, path.basename(dir)));
   fault(options, 'after-aside');
   await rm(aside, { recursive: true, force: true });
 }
 
-async function isExecutableFile(file: string): Promise<boolean> {
+async function hasInstalledMode(file: string): Promise<boolean> {
   try {
     const info = await stat(file);
-    return info.isFile() && (info.mode & EXECUTABLE) === EXECUTABLE;
+    return info.isFile() && (info.mode & EXECUTABLE_MODE) === EXECUTABLE_MODE;
   } catch {
     return false;
   }
@@ -144,20 +146,20 @@ async function placeVersion(
   staging: string,
 ): Promise<void> {
   const installed = await readText(path.join(versionDir, ARTIFACT_MARKER));
-  if (installed !== null && (await isExecutableFile(path.join(versionDir, 'bin', entry.name)))) {
+  if (installed !== null && (await hasInstalledMode(path.join(versionDir, 'bin', entry.name)))) {
     if (installed === entry.sha256) return;
     throw new ToolError(
       `${entry.name} ${entry.version} is already installed from a different artifact; installed versions are immutable, so bump the version or uninstall first`,
     );
   }
   await removeAside(versionDir, staging);
-  await mkdir(path.dirname(versionDir), { recursive: true });
+  await mkdir(path.dirname(versionDir), { recursive: true, mode: EXECUTABLE_MODE });
   await moveDir(stage, versionDir);
 }
 
 async function swapLink(link: string, target: string): Promise<void> {
   const dir = path.dirname(link);
-  await mkdir(dir, { recursive: true });
+  await mkdir(dir, { recursive: true, mode: EXECUTABLE_MODE });
   const prefix = `.${path.basename(link)}.`;
   const entries = await readdir(dir);
   for (const stale of entries.filter((file) => file.startsWith(prefix) && file.endsWith('.tmp'))) {
@@ -191,6 +193,69 @@ async function verifiedBytes(artifact: string, entry: IndexEntry): Promise<Buffe
   return bytes;
 }
 
+function identifiers(m: ToolManifest): string[] {
+  return m.alias === undefined ? [m.name] : [m.name, m.alias];
+}
+
+async function linkTarget(link: string): Promise<string | null | undefined> {
+  try {
+    const info = await lstat(link);
+    if (!info.isSymbolicLink()) return null;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+  return path.resolve(path.dirname(link), await readlink(link));
+}
+
+/**
+ * Refuses unless every link `m` needs (`bin/<name>` and `bin/<alias>`) is missing or is a
+ * symlink into this tool's own directory, so a file the user put in a shared bin directory, or
+ * another installed tool's link, is never replaced.
+ */
+async function assertLinksOwned(m: ToolManifest, paths: TbxPaths): Promise<void> {
+  const toolDir = path.join(paths.tools, m.name);
+  for (const identifier of identifiers(m)) {
+    const link = path.join(paths.bin, identifier);
+    const target = await linkTarget(link);
+    if (target === undefined || (target !== null && isWithin(toolDir, target))) continue;
+    const owner =
+      target !== null && isWithin(paths.tools, target)
+        ? `it links to another installed tool (${path.relative(paths.tools, target).split(path.sep)[0] ?? ''})`
+        : 'it is not a tbx link';
+    throw new ToolError(
+      `cannot link ${identifier} for ${m.name}: ${link} exists and ${owner}; remove it or set TBX_BIN_DIR to another directory`,
+      ExitCode.config,
+    );
+  }
+}
+
+/** The links in the bin directory that point into `tools/<name>/`. */
+async function toolLinks(paths: TbxPaths, name: string): Promise<string[]> {
+  const toolDir = path.join(paths.tools, name);
+  let entries: string[];
+  try {
+    entries = await readdir(paths.bin);
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const links: string[] = [];
+  for (const entry of entries) {
+    const link = path.join(paths.bin, entry);
+    const target = await linkTarget(link);
+    if (typeof target === 'string' && isWithin(toolDir, target)) links.push(link);
+  }
+  return links;
+}
+
+async function linksCurrent(m: ToolManifest, paths: TbxPaths, binary: string): Promise<boolean> {
+  for (const identifier of identifiers(m)) {
+    if ((await readLink(path.join(paths.bin, identifier))) !== binary) return false;
+  }
+  return true;
+}
+
 async function activate(
   m: ToolManifest,
   versionDir: string,
@@ -199,10 +264,13 @@ async function activate(
 ): Promise<void> {
   const state = await readState(paths);
   const previous = recordOf(state, m.name);
-  const link = path.join(paths.bin, m.name);
   const binary = path.join(versionDir, 'bin', m.name);
-  if (previous?.version === m.version && (await readLink(link)) === binary) return;
-  await swapLink(link, binary);
+  if (previous?.version === m.version && (await linksCurrent(m, paths, binary))) return;
+  const wanted = new Set(identifiers(m).map((identifier) => path.join(paths.bin, identifier)));
+  for (const link of wanted) await swapLink(link, binary);
+  for (const link of await toolLinks(paths, m.name)) {
+    if (!wanted.has(link)) await rm(link, { force: true });
+  }
   fault(options, 'after-link');
   const record = { version: m.version, installedAt: new Date().toISOString() };
   await writeState(paths, { tools: { ...state.tools, [m.name]: record } });
@@ -221,10 +289,11 @@ async function installLocked(
 ): Promise<void> {
   const bytes = await verifiedBytes(artifact, entry);
   await rm(paths.staging, { recursive: true, force: true });
-  await mkdir(paths.staging, { recursive: true });
+  await mkdir(paths.staging, { recursive: true, mode: EXECUTABLE_MODE });
   const stage = await mkdtemp(path.join(paths.staging, `${entry.name}-`));
   try {
     const m = await stageArtifact(bytes, entry, stage, path.join(paths.bin, entry.name), options);
+    await assertLinksOwned(m, paths);
     fault(options, 'after-extract');
     const versionDir = path.join(paths.tools, m.name, m.version);
     await placeVersion(stage, versionDir, entry, paths.staging);
@@ -279,15 +348,12 @@ async function uninstallLocked(options: UninstallOptions, paths: TbxPaths): Prom
   const { name } = options;
   const state = await readState(paths);
   const toolDir = path.join(paths.tools, name);
-  const link = path.join(paths.bin, name);
-  const target = await readLink(link);
+  const links = await toolLinks(paths, name);
   const recorded = recordOf(state, name) !== undefined;
-  if (!recorded && target === null && !(await pathExists(toolDir))) {
+  if (!recorded && links.length === 0 && !(await pathExists(toolDir))) {
     throw new ToolError(`${name} is not installed`);
   }
-  if (target !== null && !path.relative(toolDir, target).startsWith('..')) {
-    await rm(link, { force: true });
-  }
+  for (const link of links) await rm(link, { force: true });
   if (recorded) {
     const tools = Object.fromEntries(Object.entries(state.tools).filter(([key]) => key !== name));
     await writeState(paths, { tools });
@@ -296,8 +362,8 @@ async function uninstallLocked(options: UninstallOptions, paths: TbxPaths): Prom
 }
 
 /**
- * Removes `name` under `home` while holding the install lock: the bin link (only when it points
- * into the tool's directory), then its `installed.json` entry (atomically), then every installed
+ * Removes `name` under `home` while holding the install lock: every bin link that points into
+ * the tool's directory (its name and alias), then its `installed.json` entry (atomically), then every installed
  * version, by renaming the tool directory aside into staging before deleting it, so a kill never
  * leaves a half-deleted directory at its normal path.
  *
@@ -307,6 +373,28 @@ export async function uninstallTool(options: UninstallOptions): Promise<void> {
   assertToolName(options.name);
   const paths = tbxPaths(options.home, envOf(options));
   await withLock(paths.lockFile, () => uninstallLocked(options, paths), options.lockTimeoutMs);
+}
+
+/**
+ * The installed tool `word` runs: `word` itself when it has an install record, otherwise the
+ * recorded tool whose installed `tool.toml` declares `word` as its alias, otherwise `null`. A
+ * version directory whose `tool.toml` is missing is skipped.
+ *
+ * @throws {ManifestError} when an installed `tool.toml` exists but cannot be read or is invalid.
+ */
+export async function installedToolFor(paths: TbxPaths, word: string): Promise<string | null> {
+  const state = await readState(paths);
+  if (recordOf(state, word) !== undefined) return word;
+  for (const [name, record] of Object.entries(state.tools)) {
+    const file = path.join(paths.tools, name, record.version, 'tool.toml');
+    try {
+      const manifest = await loadManifest(file);
+      if (manifest.alias === word) return name;
+    } catch (error) {
+      if (!(error instanceof ManifestError && error.code === 'ENOENT')) throw error;
+    }
+  }
+  return null;
 }
 
 /** Default `--index`: `dist/release/index.json` under the repo root. */

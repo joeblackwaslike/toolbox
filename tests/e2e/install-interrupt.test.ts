@@ -125,6 +125,24 @@ describe('tbx <tool> dispatch', () => {
     expect(result.status).toBe(3);
   });
 
+  it('runs an installed tool by the alias its tool.toml declares', async () => {
+    const box = await sandbox();
+    const parts = members('1.0.0', 'alias = "hi"');
+    parts[0] = {
+      path: `bin/${TOOL}`,
+      content: Buffer.from('#!/bin/sh\necho "args: $*"\n'),
+      mode: 0o755,
+    };
+    expect(tbx(box, ['install', TOOL, '--index', await publish(box, '1.0.0', parts)]).status).toBe(
+      0,
+    );
+    const result = tbx(box, ['hi', 'x']);
+    expect({ status: result.status, stdout: result.stdout }).toEqual({
+      status: 0,
+      stdout: 'args: x\n',
+    });
+  });
+
   it('exits 2 for constructor, an Object.prototype key, when nothing is installed', async () => {
     const box = await sandbox();
     const result = tbx(box, ['constructor']);
