@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { build as esbuild } from 'esbuild';
 import { z } from 'zod';
 import { generateShellParser } from '../../../shared/sh/gen-parser.ts';
@@ -10,20 +8,22 @@ import { ExitCode, ToolError } from '../../../shared/ts/src/errors.ts';
 import { compareText } from '../../../shared/ts/src/gen/files.ts';
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
 import { NAME_PATTERN, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
+import { CommandError, runBounded } from '../../../shared/ts/src/run.ts';
 import { packTar, sha256 } from '../archive.ts';
 import type { TbxContext } from '../context.ts';
 import { assertToolName, withVariable, writeFileAtomic } from '../state.ts';
-
-const execFileAsync = promisify(execFile);
 
 const INDEX_FILE = 'index.json';
 const EXECUTABLE = 0o755;
 const READABLE = 0o644;
 const FIXED_MTIME = new Date('2000-01-01T00:00:00Z');
-const MAX_TOOL_OUTPUT_BYTES = 67_108_864;
+const MS_PER_SECOND = 1000;
 const CHECKOUT_LOADER_START = '\nif ! declare -F _tbx_parse >/dev/null; then\n';
 const CHECKOUT_LOADER_END = '\nfi\n';
 const SOURCE_COMMAND = /^(?:source|\.)\s/;
+
+/** Longest one build step (an esbuild bundle or a `uv` command) may run before the build fails. */
+export const BUILD_STEP_TIMEOUT_MS = 300_000;
 
 /** Directory `tbx build` writes to and `tbx install` reads `index.json` from by default. */
 export const DEFAULT_RELEASE_DIR = 'dist/release';
@@ -94,8 +94,22 @@ export async function writeIndex(outDir: string, entries: IndexEntry[]): Promise
   return file;
 }
 
+async function withinLimit<T>(work: Promise<T>, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const limit = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new ToolError(`${what} timed out after ${BUILD_STEP_TIMEOUT_MS / MS_PER_SECOND}s`));
+    }, BUILD_STEP_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([work, limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function bundleTs(root: string, name: string): Promise<Buffer> {
-  const result = await esbuild({
+  const bundling = esbuild({
     entryPoints: [path.join(root, 'tools', name, 'src/index.ts')],
     absWorkingDir: root,
     bundle: true,
@@ -118,6 +132,7 @@ async function bundleTs(root: string, name: string): Promise<Buffer> {
       },
     ],
   });
+  const result = await withinLimit(bundling, `esbuild bundle of ${name}`);
   const [output] = result.outputFiles;
   if (output === undefined) throw new Error(`esbuild produced no output for ${name}`);
   return Buffer.from(output.contents);
@@ -159,15 +174,15 @@ async function run(
   env = process.env,
 ): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(command, args, {
+    const { stdout } = await runBounded(command, args, {
       cwd,
       env,
-      maxBuffer: MAX_TOOL_OUTPUT_BYTES,
+      timeoutMs: BUILD_STEP_TIMEOUT_MS,
     });
     return stdout;
   } catch (error) {
-    const { stderr, message } = error as { stderr?: string; message: string };
-    throw new ToolError(`${command} ${args.join(' ')} failed: ${(stderr ?? message).trim()}`);
+    const detail = error instanceof CommandError ? error.stderr : (error as Error).message;
+    throw new ToolError(`${command} ${args.join(' ')} failed: ${detail.trim()}`);
   }
 }
 

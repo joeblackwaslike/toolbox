@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   renderSystemdTimer,
@@ -241,4 +244,29 @@ describe('validateUnit', () => {
       .trim();
     expect(after).toBe(before);
   });
+});
+
+describe('validateUnit bounds', () => {
+  const originalPath = process.env.PATH;
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+  });
+
+  it.each([
+    ['launchd', 'plutil'],
+    ['systemd', 'systemd-analyze'],
+  ] as const)(
+    'a %s validator that hangs fails at the limit instead of hanging',
+    async (kind, tool) => {
+      const dir = await mkdtemp(join(tmpdir(), 'tbx-slow-'));
+      await writeFile(join(dir, tool), '#!/bin/sh\nsleep 30\n');
+      await chmod(join(dir, tool), 0o755);
+      process.env.PATH = [dir, originalPath ?? ''].join(delimiter);
+      const started = Date.now();
+      const result = await validateUnit(kind, 'not checked', 200);
+      expect(Date.now() - started).toBeLessThan(5000);
+      expect(result).toEqual({ ok: false, skipped: false, message: 'timed out after 0.2s' });
+    },
+  );
 });

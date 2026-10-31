@@ -1,11 +1,11 @@
-import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { ToolManifest, UnitSpec } from '../manifest.ts';
+import { runBounded } from '../run.ts';
 
-const execFileAsync = promisify(execFile);
+/** Longest a unit validator (`plutil`, `systemd-analyze`) may run before it counts as failed. */
+export const VALIDATOR_TIMEOUT_MS = 30_000;
 
 const LABEL_PREFIX = 'dev.tbx.';
 const TEMP_PREFIX = 'tbx-unit-';
@@ -241,10 +241,12 @@ function plistProblem(parsed: unknown): string | null {
     : calendarProblem(plist.StartCalendarInterval);
 }
 
-async function validateLaunchd(file: string): Promise<UnitValidation> {
+async function validateLaunchd(file: string, timeoutMs: number): Promise<UnitValidation> {
   try {
-    await execFileAsync('plutil', ['-lint', file]);
-    const { stdout } = await execFileAsync('plutil', ['-convert', 'json', '-o', '-', file]);
+    await runBounded('plutil', ['-lint', file], { timeoutMs });
+    const { stdout } = await runBounded('plutil', ['-convert', 'json', '-o', '-', file], {
+      timeoutMs,
+    });
     const problem = plistProblem(JSON.parse(stdout));
     return problem === null
       ? { ok: true, skipped: false, message: 'plist is valid' }
@@ -255,9 +257,9 @@ async function validateLaunchd(file: string): Promise<UnitValidation> {
   }
 }
 
-async function validateSystemd(file: string): Promise<UnitValidation> {
+async function validateSystemd(file: string, timeoutMs: number): Promise<UnitValidation> {
   try {
-    await execFileAsync('systemd-analyze', ['verify', file]);
+    await runBounded('systemd-analyze', ['verify', file], { timeoutMs });
     return { ok: true, skipped: false, message: 'unit is valid' };
   } catch (error) {
     if (isMissing(error)) {
@@ -272,13 +274,21 @@ async function validateSystemd(file: string): Promise<UnitValidation> {
  * checks the required keys and their types (Label, ProgramArguments, StartCalendarInterval
  * Hour/Minute, StartInterval, RunAtLoad); systemd runs `systemd-analyze verify` on a service
  * file. Returns `skipped: true` when the tool is not installed, and removes its temp files.
+ * A validator still running after `timeoutMs` is killed and the unit counts as invalid, with
+ * the message `timed out after <n>s`.
  */
-export async function validateUnit(kind: UnitKind, content: string): Promise<UnitValidation> {
+export async function validateUnit(
+  kind: UnitKind,
+  content: string,
+  timeoutMs: number = VALIDATOR_TIMEOUT_MS,
+): Promise<UnitValidation> {
   const dir = await mkdtemp(path.join(tmpdir(), TEMP_PREFIX));
   try {
     const file = path.join(dir, kind === 'launchd' ? 'unit.plist' : 'unit.service');
     await writeFile(file, content, 'utf8');
-    return await (kind === 'launchd' ? validateLaunchd(file) : validateSystemd(file));
+    return await (kind === 'launchd'
+      ? validateLaunchd(file, timeoutMs)
+      : validateSystemd(file, timeoutMs));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -67,10 +67,20 @@ Outcome of `validateUnit`. `skipped` is true when the validator binary is not in
 ## validateUnit
 
 ```ts
-async function validateUnit(kind: UnitKind, content: string): Promise<UnitValidation>
+async function validateUnit( kind: UnitKind, content: string, timeoutMs: number = VALIDATOR_TIMEOUT_MS, ): Promise<UnitValidation>
 ```
 
 Validates rendered unit text with the platform tool. launchd runs `plutil -lint` and then
 checks the required keys and their types (Label, ProgramArguments, StartCalendarInterval
 Hour/Minute, StartInterval, RunAtLoad); systemd runs `systemd-analyze verify` on a service
 file. Returns `skipped: true` when the tool is not installed, and removes its temp files.
+A validator still running after `timeoutMs` is killed and the unit counts as invalid, with
+the message `timed out after <n>s`.
+
+## VALIDATOR_TIMEOUT_MS
+
+```ts
+const VALIDATOR_TIMEOUT_MS
+```
+
+Longest a unit validator (`plutil`, `systemd-analyze`) may run before it counts as failed.

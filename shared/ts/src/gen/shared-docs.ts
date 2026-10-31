@@ -1,13 +1,13 @@
-import { execFile } from 'node:child_process';
 import type { Dirent } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import ts from 'typescript';
+import { runBounded } from '../run.ts';
 import { type GeneratedFile, compareText } from './files.ts';
 
-const run = promisify(execFile);
+/** Longest the Python doc extractor may run before doc generation fails. */
+export const DOC_EXTRACT_TIMEOUT_MS = 120_000;
 const PY_EXTRACTOR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../py/extract_docs.py',
@@ -132,7 +132,13 @@ async function extractPy(root: string): Promise<SharedModuleDoc[]> {
   const dir = path.join(root, PY_DIR);
   const pyFiles = await filesUnder(dir, '.py');
   if (pyFiles.length === 0) return [];
-  const result = await run('uv', ['run', '--no-project', 'python', '-I', PY_EXTRACTOR, dir]);
+  const result = await runBounded(
+    'uv',
+    ['run', '--no-project', 'python', '-I', PY_EXTRACTOR, dir],
+    {
+      timeoutMs: DOC_EXTRACT_TIMEOUT_MS,
+    },
+  );
   const parsed = JSON.parse(result.stdout) as { module: string; symbols: SharedSymbol[] }[];
   return parsed.map((mod) => ({ lang: 'py', ...mod }));
 }
