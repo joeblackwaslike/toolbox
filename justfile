@@ -58,4 +58,8 @@ gen:
 gen-check:
   pnpm --silent tbx gen --check
 
+verify-tool name:
+  pnpm --silent tbx verify {{name}}
+
 verify-all: lint test gen-check
+  pnpm --silent tbx verify --all

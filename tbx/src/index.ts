@@ -14,6 +14,7 @@ import { install, uninstall } from './commands/install.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
+import { verify } from './commands/verify.ts';
 import type { TbxContext } from './context.ts';
 import { readState, recordOf, tbxPaths } from './state.ts';
 import { LANGS, type Lang } from './templates.ts';
@@ -94,6 +95,14 @@ function addReleaseCommands(program: Command, run: Runner): void {
     .option('--index <path>', 'Release index.json (default: dist/release/index.json)')
     .action((name: string, options: { index?: string }, command: Command) =>
       run(command, (ctx) => install(ctx, name, options)),
+    );
+  program
+    .command('verify')
+    .description('Run the done gate: lint, unit, drift, contract, e2e and units')
+    .argument('[tool]', 'Tool name')
+    .option('--all', 'Verify every tool in tools/')
+    .action((tool: string | undefined, options: { all?: boolean }, command: Command) =>
+      run(command, (ctx) => verify(ctx, tool, options)),
     );
   program
     .command('uninstall')
