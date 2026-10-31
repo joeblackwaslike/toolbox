@@ -1,5 +1,4 @@
 import {
-  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -7,29 +6,21 @@ import {
   readlink,
   rename,
   rm,
+  stat,
   symlink,
-  writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { ExitCode, ToolError } from '../../../shared/ts/src/errors.ts';
-import {
-  renderSystemdTimer,
-  renderUnit,
-  unitLabel,
-  validateUnit,
-} from '../../../shared/ts/src/gen/unit.ts';
-import {
-  ManifestError,
-  type ToolManifest,
-  parseManifest,
-} from '../../../shared/ts/src/manifest.ts';
-import { type TarMember, sha256, unpackTar } from '../archive.ts';
+import type { ToolManifest } from '../../../shared/ts/src/manifest.ts';
+import { sha256 } from '../archive.ts';
 import type { TbxContext } from '../context.ts';
+import { ARTIFACT_MARKER, EXECUTABLE, stageArtifact } from '../stage.ts';
 import {
   type Env,
   type TbxPaths,
   assertToolName,
   readState,
+  recordOf,
   tbxPaths,
   withLock,
   writeState,
@@ -38,7 +29,13 @@ import { pathExists } from '../templates.ts';
 import { DEFAULT_RELEASE_DIR, type IndexEntry, readIndex } from './build.ts';
 
 /** Points between install steps where a test can kill the process with `faultAt`. */
-export const FAULT_POINTS = ['after-extract', 'after-move', 'after-link', 'before-state'] as const;
+export const FAULT_POINTS = [
+  'after-extract',
+  'after-move',
+  'after-link',
+  'after-state',
+  'after-aside',
+] as const;
 /** One of `FAULT_POINTS`. */
 export type FaultPoint = (typeof FAULT_POINTS)[number];
 
@@ -52,7 +49,10 @@ export interface InstallOptions {
   home: string;
   /** Environment for `XDG_DATA_HOME`, `XDG_STATE_HOME`, `TBX_BIN_DIR` and `CI`; defaults to `process.env`. */
   env?: Env;
-  /** Test hook: SIGKILL this process at that step, to prove an interrupted install is safe. */
+  /**
+   * Library-only test hook, never set by the CLI: SIGKILL this process at that step, to prove an
+   * interrupted install is safe. `after-aside` fires when an old version has been moved aside.
+   */
   faultAt?: FaultPoint;
   /** How long to wait for another install's lock; defaults to 60 seconds. */
   lockTimeoutMs?: number;
@@ -60,24 +60,12 @@ export interface InstallOptions {
   warn?: (message: string) => void;
 }
 
-const ARTIFACT_MARKER = 'artifact.sha256';
-const MANIFEST_FILE = 'tool.toml';
-const EXECUTABLE = 0o755;
-const READABLE = 0o644;
-const REGULAR_FILE = '0';
-const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
-const PLATFORM = process.platform === 'darwin' ? 'macos' : 'linux';
-
-function fault(options: InstallOptions, point: FaultPoint): void {
+function fault(options: { faultAt?: FaultPoint }, point: FaultPoint): void {
   if (options.faultAt === point) process.kill(process.pid, 'SIGKILL');
 }
 
 function envOf(options: { env?: Env }): Env {
   return options.env ?? process.env;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function artifactPath(index: string, entry: IndexEntry): string {
@@ -99,121 +87,6 @@ async function findEntry(index: string, name: string): Promise<IndexEntry> {
   return entry;
 }
 
-function unpack(bytes: Buffer): TarMember[] {
-  try {
-    return unpackTar(bytes);
-  } catch (error) {
-    throw new ToolError(`artifact is not a valid .tar.gz: ${messageOf(error)}`);
-  }
-}
-
-function checkMembers(members: TarMember[], name: string): Map<string, Buffer> {
-  const allowed = new Set([`bin/${name}`, MANIFEST_FILE]);
-  const files = new Map<string, Buffer>();
-  for (const member of members) {
-    if (member.type !== REGULAR_FILE || !allowed.has(member.path) || files.has(member.path)) {
-      throw new ToolError(
-        `artifact member "${member.path}" (type ${member.type ?? '?'}) is not allowed; an artifact holds only bin/${name} and ${MANIFEST_FILE} as regular files`,
-      );
-    }
-    files.set(member.path, member.content);
-  }
-  for (const required of allowed) {
-    if (!files.has(required)) throw new ToolError(`artifact is missing ${required}`);
-  }
-  return files;
-}
-
-function parseArtifactManifest(text: string): ToolManifest {
-  try {
-    return parseManifest(text);
-  } catch (error) {
-    if (error instanceof ManifestError) {
-      throw new ToolError(`artifact ${MANIFEST_FILE}: ${error.message}`, ExitCode.config);
-    }
-    throw error;
-  }
-}
-
-function artifactManifest(text: string, entry: IndexEntry): ToolManifest {
-  const m = parseArtifactManifest(text);
-  if (m.name !== entry.name || m.version !== entry.version) {
-    throw new ToolError(
-      `artifact ${MANIFEST_FILE} is ${m.name} version ${m.version}, index says ${entry.name} version ${entry.version}`,
-      ExitCode.config,
-    );
-  }
-  if (!m.platforms.includes(PLATFORM)) {
-    throw new ToolError(
-      `${m.name} does not support ${PLATFORM} (platforms: ${m.platforms.join(', ')})`,
-      ExitCode.unavailable,
-    );
-  }
-  return m;
-}
-
-function unitFiles(m: ToolManifest, binPath: string, home: string): [string, string][] {
-  const label = unitLabel(m);
-  const ctx = { binPath, home, label };
-  if (PLATFORM === 'macos') return [[`${label}.plist`, renderUnit(m, 'launchd', ctx)]];
-  const service: [string, string] = [`${label}.service`, renderUnit(m, 'systemd', ctx)];
-  return m.unit?.kind === 'schedule'
-    ? [service, [`${label}.timer`, renderSystemdTimer(m, ctx)]]
-    : [service];
-}
-
-async function renderUnits(
-  m: ToolManifest,
-  stage: string,
-  binPath: string,
-  options: InstallOptions,
-): Promise<void> {
-  if (m.unit === undefined) return;
-  const files = unitFiles(m, binPath, options.home);
-  const [primary] = files;
-  const result = await validateUnit(
-    PLATFORM === 'macos' ? 'launchd' : 'systemd',
-    primary?.[1] ?? '',
-  );
-  if (!result.ok) {
-    throw new ToolError(`unit for ${m.name} is invalid: ${result.message}`, ExitCode.config);
-  }
-  if (result.skipped) {
-    if (CI_VALUES.has(envOf(options).CI ?? '')) {
-      throw new ToolError(
-        `cannot validate the unit for ${m.name}: ${result.message}`,
-        ExitCode.unavailable,
-      );
-    }
-    const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
-    warn(`warning: unit for ${m.name} not validated: ${result.message}`);
-  }
-  await mkdir(path.join(stage, 'units'));
-  for (const [file, content] of files) {
-    await writeFile(path.join(stage, 'units', file), content, { flag: 'wx' });
-  }
-}
-
-async function stageArtifact(
-  bytes: Buffer,
-  entry: IndexEntry,
-  stage: string,
-  binPath: string,
-  options: InstallOptions,
-): Promise<ToolManifest> {
-  const files = checkMembers(unpack(bytes), entry.name);
-  const toml = files.get(MANIFEST_FILE) ?? Buffer.alloc(0);
-  const m = artifactManifest(toml.toString('utf8'), entry);
-  await mkdir(path.join(stage, 'bin'));
-  const bin = path.join(stage, 'bin', entry.name);
-  await writeFile(bin, files.get(`bin/${entry.name}`) ?? Buffer.alloc(0), { flag: 'wx' });
-  await chmod(bin, EXECUTABLE);
-  await writeFile(path.join(stage, MANIFEST_FILE), toml, { flag: 'wx', mode: READABLE });
-  await writeFile(path.join(stage, ARTIFACT_MARKER), `${entry.sha256}\n`, { flag: 'wx' });
-  await renderUnits(m, stage, binPath, options);
-  return m;
-}
-
 async function readText(file: string): Promise<string | null> {
   try {
     const text = await readFile(file, 'utf8');
@@ -232,18 +105,54 @@ async function readLink(file: string): Promise<string | null> {
   }
 }
 
-async function placeVersion(stage: string, versionDir: string, entry: IndexEntry): Promise<void> {
-  const installed = await readText(path.join(versionDir, ARTIFACT_MARKER));
-  if (installed === null) {
-    await mkdir(path.dirname(versionDir), { recursive: true });
-    await rename(stage, versionDir);
-    return;
+async function moveDir(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+    throw new ToolError(`cannot move ${from} to ${to}: the target already exists (${code})`);
   }
-  if (installed !== entry.sha256) {
+}
+
+async function removeAside(
+  dir: string,
+  staging: string,
+  options: { faultAt?: FaultPoint } = {},
+): Promise<void> {
+  if (!(await pathExists(dir))) return;
+  await mkdir(staging, { recursive: true });
+  const aside = await mkdtemp(path.join(staging, 'removed-'));
+  await moveDir(dir, path.join(aside, path.basename(dir)));
+  fault(options, 'after-aside');
+  await rm(aside, { recursive: true, force: true });
+}
+
+async function isExecutableFile(file: string): Promise<boolean> {
+  try {
+    const info = await stat(file);
+    return info.isFile() && (info.mode & EXECUTABLE) === EXECUTABLE;
+  } catch {
+    return false;
+  }
+}
+
+async function placeVersion(
+  stage: string,
+  versionDir: string,
+  entry: IndexEntry,
+  staging: string,
+): Promise<void> {
+  const installed = await readText(path.join(versionDir, ARTIFACT_MARKER));
+  if (installed !== null && (await isExecutableFile(path.join(versionDir, 'bin', entry.name)))) {
+    if (installed === entry.sha256) return;
     throw new ToolError(
       `${entry.name} ${entry.version} is already installed from a different artifact; installed versions are immutable, so bump the version or uninstall first`,
     );
   }
+  await removeAside(versionDir, staging);
+  await mkdir(path.dirname(versionDir), { recursive: true });
+  await moveDir(stage, versionDir);
 }
 
 async function swapLink(link: string, target: string): Promise<void> {
@@ -259,9 +168,15 @@ async function swapLink(link: string, target: string): Promise<void> {
   await rename(temporary, link);
 }
 
-async function prune(toolDir: string, keep: ReadonlySet<string>): Promise<void> {
+async function prune(
+  toolDir: string,
+  keep: ReadonlySet<string>,
+  staging: string,
+  options: InstallOptions,
+): Promise<void> {
   for (const version of await readdir(toolDir)) {
-    if (!keep.has(version)) await rm(path.join(toolDir, version), { recursive: true, force: true });
+    if (keep.has(version)) continue;
+    await removeAside(path.join(toolDir, version), staging, options);
   }
 }
 
@@ -283,17 +198,18 @@ async function activate(
   options: InstallOptions,
 ): Promise<void> {
   const state = await readState(paths);
-  const previous = state.tools[m.name];
+  const previous = recordOf(state, m.name);
   const link = path.join(paths.bin, m.name);
   const binary = path.join(versionDir, 'bin', m.name);
   if (previous?.version === m.version && (await readLink(link)) === binary) return;
   await swapLink(link, binary);
   fault(options, 'after-link');
-  fault(options, 'before-state');
   const record = { version: m.version, installedAt: new Date().toISOString() };
   await writeState(paths, { tools: { ...state.tools, [m.name]: record } });
+  fault(options, 'after-state');
   if (previous !== undefined && previous.version !== m.version) {
-    await prune(path.dirname(versionDir), new Set([m.version, previous.version]));
+    const keep = new Set([m.version, previous.version]);
+    await prune(path.dirname(versionDir), keep, paths.staging, options);
   }
 }
 
@@ -311,7 +227,7 @@ async function installLocked(
     const m = await stageArtifact(bytes, entry, stage, path.join(paths.bin, entry.name), options);
     fault(options, 'after-extract');
     const versionDir = path.join(paths.tools, m.name, m.version);
-    await placeVersion(stage, versionDir, entry);
+    await placeVersion(stage, versionDir, entry, paths.staging);
     fault(options, 'after-move');
     await activate(m, versionDir, paths, options);
   } finally {
@@ -325,8 +241,10 @@ async function installLocked(
  * into a staging directory on the same filesystem, render any unit into its `units/` without
  * touching the system, move it to `tools/<name>/<version>/`, swap the bin link atomically, then
  * write `installed.json` atomically. The previous version stays in place and linked until the
- * new link is active; afterwards only the current and previous versions are kept. Reinstalling
- * the installed version is a no-op. A failure or kill at any step leaves the previous version
+ * new link is active; afterwards only the current and previous versions are kept, each removal
+ * renaming the directory aside into staging first. An existing version directory is reused only
+ * when its marker matches and its binary is an executable file; a partial one is replaced.
+ * Reinstalling the installed version is a no-op. A failure or kill at any step leaves the previous version
  * runnable and the state file valid, and a rerun completes the install.
  *
  * @throws {ToolError} for an invalid name (2), a tool missing from the index, a checksum
@@ -345,20 +263,25 @@ export async function installTool(options: InstallOptions): Promise<void> {
   );
 }
 
-/** Options for `uninstallTool`; `env` and `lockTimeoutMs` mean the same as for `installTool`. */
+/**
+ * Options for `uninstallTool`; `env`, `lockTimeoutMs` and `faultAt` (only `after-aside` applies)
+ * mean the same as for `installTool`.
+ */
 export interface UninstallOptions {
   name: string;
   home: string;
   env?: Env;
   lockTimeoutMs?: number;
+  faultAt?: FaultPoint;
 }
 
-async function uninstallLocked(name: string, paths: TbxPaths): Promise<void> {
+async function uninstallLocked(options: UninstallOptions, paths: TbxPaths): Promise<void> {
+  const { name } = options;
   const state = await readState(paths);
   const toolDir = path.join(paths.tools, name);
   const link = path.join(paths.bin, name);
   const target = await readLink(link);
-  const recorded = state.tools[name] !== undefined;
+  const recorded = recordOf(state, name) !== undefined;
   if (!recorded && target === null && !(await pathExists(toolDir))) {
     throw new ToolError(`${name} is not installed`);
   }
@@ -369,20 +292,21 @@ async function uninstallLocked(name: string, paths: TbxPaths): Promise<void> {
     const tools = Object.fromEntries(Object.entries(state.tools).filter(([key]) => key !== name));
     await writeState(paths, { tools });
   }
-  await rm(toolDir, { recursive: true, force: true });
+  await removeAside(toolDir, paths.staging, options);
 }
 
 /**
  * Removes `name` under `home` while holding the install lock: the bin link (only when it points
  * into the tool's directory), then its `installed.json` entry (atomically), then every installed
- * version.
+ * version, by renaming the tool directory aside into staging before deleting it, so a kill never
+ * leaves a half-deleted directory at its normal path.
  *
  * @throws {ToolError} exit 2 for an invalid name, exit 1 when the tool is not installed.
  */
 export async function uninstallTool(options: UninstallOptions): Promise<void> {
   assertToolName(options.name);
   const paths = tbxPaths(options.home, envOf(options));
-  await withLock(paths.lockFile, () => uninstallLocked(options.name, paths), options.lockTimeoutMs);
+  await withLock(paths.lockFile, () => uninstallLocked(options, paths), options.lockTimeoutMs);
 }
 
 /** Default `--index`: `dist/release/index.json` under the repo root. */
@@ -396,7 +320,6 @@ async function installOne(
   index: string,
   skipUnsupported: boolean,
 ): Promise<{ name: string; version: string } | null> {
-  const faultAt = FAULT_POINTS.find((point) => point === ctx.env.TBX_TEST_FAULT_AT);
   try {
     await installTool({
       name,
@@ -406,7 +329,6 @@ async function installOne(
       warn: (message) => {
         ctx.out.info(message);
       },
-      ...(faultAt === undefined ? {} : { faultAt }),
     });
   } catch (error) {
     if (!(skipUnsupported && error instanceof ToolError && error.code === ExitCode.unavailable)) {
@@ -416,7 +338,7 @@ async function installOne(
     return null;
   }
   const state = await readState(tbxPaths(ctx.home, ctx.env));
-  return { name, version: state.tools[name]?.version ?? '' };
+  return { name, version: recordOf(state, name)?.version ?? '' };
 }
 
 async function indexNames(index: string): Promise<string[]> {

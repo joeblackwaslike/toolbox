@@ -8,10 +8,10 @@ import { writeIndex } from '../../tbx/src/commands/build.ts';
 /** Name of the hand-built shell tool the install tests publish. */
 export const TOOL = 'hello';
 
-/** A `tool.toml` for `TOOL` at `version`, with `extra` TOML appended. */
-export function manifestText(version: string, extra = ''): string {
+/** A `tool.toml` for `name` (default `TOOL`) at `version`, with `extra` TOML appended. */
+export function manifestText(version: string, extra = '', name = TOOL): string {
   return [
-    `name = "${TOOL}"`,
+    `name = "${name}"`,
     'summary = "Says hello"',
     'language = "sh"',
     `version = "${version}"`,
@@ -20,15 +20,15 @@ export function manifestText(version: string, extra = ''): string {
   ].join('\n');
 }
 
-/** The two members of a well-formed `TOOL` artifact whose binary prints `hello <version>`. */
-export function members(version: string, extra = ''): TarMember[] {
+/** The two members of a well-formed artifact for `name` whose binary prints `hello <version>`. */
+export function members(version: string, extra = '', name = TOOL): TarMember[] {
   return [
     {
-      path: `bin/${TOOL}`,
+      path: `bin/${name}`,
       content: Buffer.from(`#!/bin/sh\necho "hello ${version}"\n`),
       mode: 0o755,
     },
-    { path: 'tool.toml', content: Buffer.from(manifestText(version, extra)), mode: 0o644 },
+    { path: 'tool.toml', content: Buffer.from(manifestText(version, extra, name)), mode: 0o644 },
   ];
 }
 
@@ -47,18 +47,19 @@ export async function sandbox(): Promise<Sandbox> {
 }
 
 /**
- * Writes `<releases>/hello-<version>.tar.gz` (from `content`, or packed from `parts`) and an
+ * Writes `<releases>/<name>-<version>.tar.gz` (raw bytes, or packed from member `parts`) and an
  * `index.json` listing only it, with the checksum of the bytes written. Returns the index path.
  */
 export async function publish(
   box: Sandbox,
   version: string,
   parts: TarMember[] | Buffer = members(version),
+  name = TOOL,
 ): Promise<string> {
   const bytes = Buffer.isBuffer(parts) ? parts : packTar(parts);
-  const artifact = `${TOOL}-${version}.tar.gz`;
+  const artifact = `${name}-${version}.tar.gz`;
   await writeFile(join(box.releases, artifact), bytes);
-  return writeIndex(box.releases, [{ name: TOOL, version, artifact, sha256: sha256(bytes) }]);
+  return writeIndex(box.releases, [{ name, version, artifact, sha256: sha256(bytes) }]);
 }
 
 /** Flips one byte of the published artifact for `version`, leaving the index untouched. */

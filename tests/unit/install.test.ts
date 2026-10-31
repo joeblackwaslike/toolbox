@@ -172,6 +172,45 @@ describe('installTool', () => {
     expect(runBinary(paths.link)).toBe('hello 1.0.0');
   });
 
+  it('reinstall replaces a version directory whose binary a crashed removal deleted', async () => {
+    const index = await publish(box, '1.0.0');
+    await install(index);
+    await rm(join(paths.tools, '1.0.0', 'bin'), { recursive: true });
+    expect(await exists(join(paths.tools, '1.0.0', 'artifact.sha256'))).toBe(true);
+    await install(index);
+    expect(runBinary(paths.link)).toBe('hello 1.0.0');
+    expect(await installedVersion()).toBe('1.0.0');
+  });
+
+  it('reinstall replaces a partial version directory that has no marker', async () => {
+    await install(await publish(box, '1.0.0'));
+    const partial = join(paths.tools, '2.0.0');
+    await mkdir(join(partial, 'units'), { recursive: true });
+    await writeFile(join(partial, 'tool.toml'), 'leftover');
+    await install(await publish(box, '2.0.0'));
+    expect(runBinary(paths.link)).toBe('hello 2.0.0');
+    expect(await readdir(partial)).toEqual(['artifact.sha256', 'bin', 'tool.toml']);
+    expect(await versions()).toEqual(['1.0.0', '2.0.0']);
+  });
+
+  it('a tool named constructor has no previous record on its first install', async () => {
+    const name = 'constructor';
+    const orphan = join(dirname(paths.tools), name, '0.9.0');
+    await mkdir(orphan, { recursive: true });
+    await installTool({
+      name,
+      index: await publish(box, '1.0.0', members('1.0.0', '', name), name),
+      home: box.home,
+      env: NO_ENV,
+    });
+    expect(runBinary(join(dirname(paths.link), name))).toBe('hello 1.0.0');
+    expect(await exists(orphan)).toBe(true);
+    await uninstallTool({ name, home: box.home, env: NO_ENV });
+    await expect(uninstallTool({ name, home: box.home, env: NO_ENV })).rejects.toThrow(
+      /constructor is not installed/,
+    );
+  });
+
   it('refuses a different artifact for a version that is already installed', async () => {
     await install(await publish(box, '1.0.0'));
     const changed = members('1.0.0');

@@ -15,7 +15,7 @@ import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
 import type { TbxContext } from './context.ts';
-import { readState, tbxPaths } from './state.ts';
+import { readState, recordOf, tbxPaths } from './state.ts';
 import { LANGS, type Lang } from './templates.ts';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -204,7 +204,7 @@ async function installedLink(
   const variables = env.vars ?? process.env;
   const paths = tbxPaths(homeOf(variables), variables);
   const state = await readState(paths);
-  return state.tools[first] === undefined ? null : path.join(paths.bin, first);
+  return recordOf(state, first) === undefined ? null : path.join(paths.bin, first);
 }
 
 function dispatch(link: string, args: readonly string[], streams: OutputStreams): number {

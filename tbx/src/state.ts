@@ -80,6 +80,17 @@ const stateSchema = z.strictObject({
 /** The install record at `installed.json`. */
 export type InstallState = z.infer<typeof stateSchema>;
 
+/**
+ * The record for `name`, read as an own property so names such as `constructor` never resolve
+ * to `Object.prototype` members.
+ */
+export function recordOf(
+  state: InstallState,
+  name: string,
+): InstallState['tools'][string] | undefined {
+  return Object.hasOwn(state.tools, name) ? state.tools[name] : undefined;
+}
+
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
