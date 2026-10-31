@@ -4,3 +4,4 @@
 
 | Tool | Alias | Language | Version | Summary |
 | --- | --- | --- | --- | --- |
+| `transcribe` |  | sh | 0.1.0 | Turn a video URL into a clean markdown transcript |

@@ -7,6 +7,10 @@
 - [Tool catalog](docs/catalog.md): every tool with its alias, language and summary
 - [Shared modules](docs/shared/index.md): helpers every tool reuses
 
+## Tools
+
+- [transcribe](tools/transcribe/README.md): Turn a video URL into a clean markdown transcript
+
 ## Shared modules
 
 - [py/cli](docs/shared/py/cli.md): ToolContext, build_command, define_tool, load_manifest, run_tool, usage_of

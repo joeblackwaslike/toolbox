@@ -1,0 +1,10 @@
+name = "transcribe"
+summary = "Turn a video URL into a clean markdown transcript"
+language = "sh"
+version = "0.1.0"
+platforms = ["macos"]
+
+[[args]]
+name = "url"
+summary = "Video or audio URL that yt-dlp can download"
+required = true

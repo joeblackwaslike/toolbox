@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# @file transcribe
+# @brief Turn a video URL into a clean markdown transcript.
+# @description
+#   Downloads the audio with yt-dlp, transcribes it with mlx-whisper, then asks claude to
+#   reformat the transcript as markdown. A build prepends shared/sh/lib.sh and the generated
+#   parser. Run from the checkout, this file loads both itself.
+#   Exit codes: 0 success, 1 download, transcription or formatting failed, 2 usage error,
+#   69 a required command is missing.
+set -euo pipefail
+
+if ! declare -F _tbx_parse >/dev/null; then
+  root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+  # shellcheck source=/dev/null
+  source "$root/shared/sh/lib.sh"
+  prelude=$(bun "$root/shared/sh/print-parser.ts" "$root/tools/transcribe/tool.toml") || exit 1
+  eval "$prelude"
+fi
+
+readonly MODEL="mlx-community/whisper-large-v3-turbo"
+readonly PROMPT="Reformat the following audio transcript into a clean markdown document: add a title, section headings, and paragraph breaks, and fix obvious transcription errors (misspelled names, etc.). Keep the original wording otherwise. Output only the markdown, no preamble."
+
+tmp_dir=""
+
+# @description Exit 69 unless a command is on PATH.
+# @arg $1 string Command name.
+# @exitcode 69 The command is missing.
+require() {
+  command -v "$1" >/dev/null 2>&1 || tbx_die 69 "error: missing dependency: $1"
+}
+
+# @description Remove the temporary work directory, if one was made.
+cleanup() {
+  if [[ -n "$tmp_dir" ]]; then
+    rm -rf "$tmp_dir"
+  fi
+}
+
+# @description Download the best audio of a URL as mp3, first with Chrome cookies, then without.
+# @arg $1 string Media URL.
+# @arg $2 string Output directory; the file is written as audio.mp3.
+# @exitcode 1 Both download attempts failed.
+download_audio() {
+  local url="$1" out="$2"
+  local -a base=(
+    uvx --from 'yt-dlp[default]' yt-dlp
+    --format 'bestaudio/best'
+    --extract-audio --audio-format mp3
+    --retries 3 --extractor-retries 3
+    --remote-components ejs:github
+    --output "$out/audio.%(ext)s"
+  )
+
+  "${base[@]}" --cookies-from-browser chrome "$url" >&2 && return 0
+  printf 'retrying without browser cookies\n' >&2
+  "${base[@]}" "$url" >&2
+}
+
+# @description Remove one wrapping markdown code fence from stdin; inner fences are kept.
+# @stdout The text without the outer fence.
+strip_fence() {
+  local text first last
+  text="$(cat)"
+  first="${text%%$'\n'*}"
+  last="${text##*$'\n'}"
+
+  if [[ "$text" == *$'\n'* && "$first" =~ ^\`\`\`[[:alnum:]_-]*$ && "$last" == '```' ]]; then
+    text="${text#*$'\n'}"
+    text="${text%$'\n'*}"
+  fi
+
+  printf '%s\n' "$text"
+}
+
+# @description Transcribe an audio file with mlx-whisper into a .txt next to the output dir.
+# @arg $1 string Audio file.
+# @arg $2 string Output directory.
+# @exitcode 1 mlx-whisper failed.
+transcribe_audio() {
+  local audio="$1" out="$2"
+  uvx --from mlx-whisper mlx_whisper "$audio" \
+    --model "$MODEL" --output-format txt --output-dir "$out" >&2
+}
+
+# @description Print the formatted markdown, or one JSON object with it under --json.
+# @arg $1 string Source URL.
+# @arg $2 string Markdown text.
+# @stdout The markdown, or {"url", "markdown"}.
+emit() {
+  if [[ "$TBX_JSON" == "1" ]]; then
+    tbx_result_json "$(jq -n --arg url "$1" --arg markdown "$2" '{url: $url, markdown: $markdown}')"
+  else
+    tbx_result "$2"
+  fi
+}
+
+# @description Run the whole pipeline for the parsed URL.
+main() {
+  local cmd markdown
+  for cmd in uvx ffmpeg deno claude; do
+    require "$cmd"
+  done
+
+  tmp_dir="$(mktemp -d)"
+  trap cleanup EXIT
+
+  download_audio "$TBX_ARG_URL" "$tmp_dir" || tbx_die 1 "error: download failed"
+  [[ -s "$tmp_dir/audio.mp3" ]] || tbx_die 1 "error: no audio file produced"
+
+  transcribe_audio "$tmp_dir/audio.mp3" "$tmp_dir" || tbx_die 1 "error: transcription failed"
+  [[ -s "$tmp_dir/audio.txt" ]] || tbx_die 1 "error: empty transcript"
+
+  markdown="$(claude -p "$PROMPT" <"$tmp_dir/audio.txt" | strip_fence)"
+  emit "$TBX_ARG_URL" "$markdown"
+}
+
+main
