@@ -7,7 +7,9 @@ Node 22 and pnpm (dependencies and workspaces), Bun (runs TypeScript), uv (Pytho
 The shell checks also need bats, shellcheck, shfmt and jq.
 
 - macOS: `brew install bats-core shellcheck shfmt jq just uv bun`
-- Ubuntu: `sudo apt-get install bats shellcheck shfmt jq`, plus just, uv and Bun from their own installers
+- Ubuntu: `sudo apt-get install bats shellcheck jq`, plus shfmt, just, uv and Bun from their own installers
+
+CI uses shfmt v3.14.1 from the [mvdan/sh releases](https://github.com/mvdan/sh/releases) on both OSes. Other shfmt releases format some lines differently, so `just lint` can fail with an older one; Ubuntu 24.04's apt package is 3.8.0.
 
 Run everything from the repo root.
 
