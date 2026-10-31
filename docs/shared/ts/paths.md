@@ -74,8 +74,8 @@ PATH entry joined with `name`, not its real path.
 function isWithin(root: string, file: string): boolean
 ```
 
-True when `file` is `root` or lies below it. Both are resolved first; a sibling whose name
-starts with `..` (for example `..foo`) counts as inside.
+True when `file` is `root` or lies below it. Both are resolved first; a child whose name
+starts with `..` (for example `root/..foo`) counts as inside.
 
 ## tbxBinDir
 

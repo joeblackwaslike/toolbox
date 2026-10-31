@@ -7,28 +7,33 @@ setup() {
   GOLDEN="${BATS_TEST_DIRNAME}/../fixtures/tools/demo/usage.json"
 }
 
-# Runs a command with a background watchdog that kills it after $1 seconds, without
-# depending on the GNU-only `timeout` binary (absent on macOS by default).
+# Runs a command under a SIGALRM deadline of $1 seconds, without depending on the
+# GNU-only `timeout` binary (absent on macOS by default). perl ships on stock macOS
+# and Ubuntu; alarm() survives exec, so stdin passed via process substitution is
+# inherited untouched and a hang fails with status 142 instead of stalling CI.
 with_deadline() {
   local secs=$1
   shift
-  "$@" <&0 &
-  local cmd_pid=$!
-  sleep "$secs" 2>/dev/null &
-  local sleep_pid=$!
-  (wait "$sleep_pid" 2>/dev/null && kill -TERM "$cmd_pid" 2>/dev/null) &
-  local watcher_pid=$!
-  local status=0
-  wait "$cmd_pid" 2>/dev/null || status=$?
-  kill "$sleep_pid" "$watcher_pid" 2>/dev/null
-  wait "$sleep_pid" "$watcher_pid" 2>/dev/null
-  return "$status"
+  perl -e 'alarm shift; exec @ARGV or exit 127' "$secs" "$@"
 }
 
 # Runs the demo with stdin held open by a pipe that never writes, so a prompt would hang
 # until the deadline kills it.
 demo_open() {
   with_deadline 10 bash "$DEMO" "$@" < <(sleep 30)
+}
+
+@test "with_deadline kills a hung command at the deadline and preserves its stdin" {
+  local start=$SECONDS
+  run with_deadline 1 cat < <(sleep 30)
+  local elapsed=$((SECONDS - start))
+  [ "$status" -eq 142 ]
+  [ "$elapsed" -le 3 ]
+}
+
+@test "with_deadline returns a fast command's own status immediately" {
+  run with_deadline 10 true
+  [ "$status" -eq 0 ]
 }
 
 @test "exits 2 when a required argument is missing and -y is set" {

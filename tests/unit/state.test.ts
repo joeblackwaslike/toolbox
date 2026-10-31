@@ -62,6 +62,71 @@ describe('withLock', () => {
     expect((await readdir(dirname(file))).filter((name) => name.includes('stale'))).toEqual([]);
   });
 
+  it('a waiter that read a stale lock before a takeover cannot delete the live lock that replaced it', async () => {
+    const file = await staleLock();
+    let active = 0;
+    let maxActive = 0;
+    const order: string[] = [];
+    const run = async (label: string): Promise<void> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      order.push(`${label} start`);
+      await delay(30);
+      order.push(`${label} end`);
+      active -= 1;
+    };
+
+    let resumeA: () => void = () => undefined;
+    const aPaused = new Promise<void>((resolve) => {
+      resumeA = resolve;
+    });
+    let aAtClaim: () => void = () => undefined;
+    const aReachedClaim = new Promise<void>((resolve) => {
+      aAtClaim = resolve;
+    });
+    const a = withLock(file, () => run('A'), 3000, {
+      beforeStaleClaim: async () => {
+        aAtClaim();
+        await aPaused;
+      },
+    });
+    await aReachedClaim;
+
+    let resumeB: () => void = () => undefined;
+    const bPaused = new Promise<void>((resolve) => {
+      resumeB = resolve;
+    });
+    let bAtAcquire: () => void = () => undefined;
+    const bReachedAcquire = new Promise<void>((resolve) => {
+      bAtAcquire = resolve;
+    });
+    const b = withLock(file, () => run('B'), 3000, {
+      afterAcquire: async () => {
+        bAtAcquire();
+        await bPaused;
+      },
+    });
+    await bReachedAcquire;
+
+    // A resumes with a stale `seen` it captured before B's takeover; it must recheck under the
+    // takeover mutex and find B's live lock instead, so C below must still block on B.
+    resumeA();
+    const c = withLock(file, () => run('C'), 3000);
+
+    await delay(60);
+    resumeB();
+    await Promise.all([a, b, c]);
+
+    expect(maxActive).toBe(1);
+    // B's live lock must survive A's stale claim entirely: B runs to completion before either
+    // A or C (which race for the lock only after B releases) gets a turn.
+    expect(order.slice(0, 2)).toEqual(['B start', 'B end']);
+    expect(new Set(order)).toEqual(
+      new Set(['A start', 'A end', 'B start', 'B end', 'C start', 'C end']),
+    );
+    expect(await readdir(dirname(file))).toEqual([]);
+  });
+
   it.skipIf(process.getuid?.() === 0)(
     "an EACCES while removing the lock does not replace the body's error",
     async () => {

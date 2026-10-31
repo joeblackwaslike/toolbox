@@ -243,27 +243,50 @@ async function tryAcquire(file: string, body: string): Promise<boolean> {
   }
 }
 
-async function restoreLock(claimed: string, file: string): Promise<void> {
+const TAKEOVER_STALE_MS = 5000;
+
+function mutexFileFor(file: string): string {
+  return `${file}.takeover`;
+}
+
+/**
+ * Deletes `file` only while holding the short-lived takeover mutex at `file.takeover`, and only if
+ * `file` still holds exactly `seen` (the dead-owner content this process observed). Serializing
+ * every stale claim through one mutex means a delayed waiter can never act on a `seen` value a
+ * live installer has since replaced: the lock file itself is never renamed aside or restored, so
+ * it never goes missing out from under a live owner, and no third process can slip into that gap.
+ */
+async function claimStale(file: string, seen: string): Promise<void> {
+  const mutex = mutexFileFor(file);
+  const mutexBody = JSON.stringify({
+    pid: process.pid,
+    createdAt: new Date().toISOString(),
+    token: randomBytes(TOKEN_BYTES).toString('hex'),
+  });
+  if (!(await tryAcquireHeld(mutex, mutexBody))) {
+    await clearDeadMutex(mutex);
+    return;
+  }
   try {
-    await link(claimed, file);
-  } catch (error) {
-    if (!(isErrnoException(error) && error.code === 'EEXIST')) throw error;
+    if ((await readIfExists(file)) === seen) await rm(file, { force: true });
+  } finally {
+    HELD_LOCKS.delete(mutexBody);
+    await release(mutex, mutexBody);
   }
 }
 
-// ponytail: two waiters can still both hold the lock if a third process acquires in the gap between our rename and the link-back of a live lock; a short-lived takeover mutex created with link() would close it.
-async function claimStale(file: string, seen: string): Promise<void> {
-  const claimed = `${file}.stale.${randomBytes(TOKEN_BYTES).toString('hex')}`;
+/**
+ * Removes the takeover mutex if its own owner is dead and the mutex is older than
+ * `TAKEOVER_STALE_MS`, so a crash while holding it cannot wedge every future install.
+ */
+async function clearDeadMutex(mutex: string): Promise<void> {
+  const seen = await readOwner(mutex);
+  if (seen?.owner == null || isLive(seen.owner, seen.raw)) return;
+  if (Date.now() - new Date(seen.owner.createdAt).getTime() < TAKEOVER_STALE_MS) return;
   try {
-    await rename(file, claimed);
-  } catch (error) {
-    if (isMissing(error)) return;
-    throw error;
-  }
-  try {
-    if ((await readIfExists(claimed)) !== seen) await restoreLock(claimed, file);
-  } finally {
-    await rm(claimed, { force: true });
+    if ((await readIfExists(mutex)) === seen.raw) await rm(mutex, { force: true });
+  } catch {
+    // another waiter is already clearing or holding it; leave it alone
   }
 }
 
@@ -316,13 +339,15 @@ async function release(file: string, mine: string): Promise<void> {
  * Runs `body` while holding the lock file at `file`, so installs, updates and uninstalls never
  * overlap. The lock is created atomically (a fully written temp file hard-linked into place)
  * and holds the owner's pid and start time. A second caller polls with backoff for up to
- * `timeoutMs`. A lock whose owner pid is no longer running is claimed by renaming it aside and
- * deleted only if the renamed file is still the dead owner's; a live lock renamed by mistake is
- * linked back without overwriting anything. A lock carrying this process's own pid counts as stale
- * unless a body in this process holds it (for example one leaked by an earlier call that released
- * inside a takeover's rename gap). The lock is removed afterwards only if it is still
- * ours; a failure while removing it never replaces the result or error of `body` (a lock left
- * behind holds a pid that is no longer running, so the next caller takes it over).
+ * `timeoutMs`. A lock whose owner pid is no longer running is claimed only while holding a
+ * short-lived takeover mutex (the same atomic hard-link primitive, at `file.takeover`): the
+ * holder rereads the lock and deletes it only if it still has the exact dead-owner content it
+ * saw before claiming the mutex, so a delayed waiter can never delete a lock a live installer
+ * has since replaced. The lock itself is never renamed aside or restored. A lock carrying this
+ * process's own pid counts as stale unless a body in this process holds it. The lock is removed
+ * afterwards only if it is still ours; a failure while removing it never replaces the result or
+ * error of `body` (a lock left behind holds a pid that is no longer running, so the next caller
+ * takes it over).
  *
  * @param hooks test-only interleaving points; leave unset.
  * @throws {ToolError} with exit code 69 when the lock is still held after `timeoutMs`.

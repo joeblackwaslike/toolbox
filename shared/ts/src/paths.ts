@@ -51,8 +51,8 @@ export function tbxBinDir(env: PathEnv = process.env): string {
 }
 
 /**
- * True when `file` is `root` or lies below it. Both are resolved first; a sibling whose name
- * starts with `..` (for example `..foo`) counts as inside.
+ * True when `file` is `root` or lies below it. Both are resolved first; a child whose name
+ * starts with `..` (for example `root/..foo`) counts as inside.
  */
 export function isWithin(root: string, file: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(file));
