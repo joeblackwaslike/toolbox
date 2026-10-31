@@ -83,6 +83,36 @@ describe('withLock', () => {
   );
 });
 
+describe('a lock left behind by this process', () => {
+  it('is taken over when no body in this process holds it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
+    const file = join(dir, 'install.lock');
+    await writeFile(
+      file,
+      JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString(), token: 'leaked' }),
+    );
+    await expect(withLock(file, () => Promise.resolve('ran'), 300)).resolves.toBe('ran');
+  });
+
+  it('still makes a second caller in this process wait for a body that holds it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
+    const file = join(dir, 'install.lock');
+    const order: string[] = [];
+    const first = withLock(file, async () => {
+      order.push('first start');
+      await delay(200);
+      order.push('first end');
+    });
+    await delay(20);
+    const second = withLock(file, () => {
+      order.push('second');
+      return Promise.resolve();
+    });
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first start', 'first end', 'second']);
+  });
+});
+
 describe('tbxPaths', () => {
   it('ignores relative XDG values, as the XDG spec requires', () => {
     const paths = tbxPaths('/home/u', {

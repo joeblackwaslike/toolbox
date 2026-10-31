@@ -113,7 +113,7 @@ describe('installTool', () => {
 
   it('a second concurrent install waits for the lock', async () => {
     const index = await publish(box, '1.0.0');
-    await writeLock(process.pid);
+    await writeLock(process.ppid);
     let settled = false;
     const pending = install(index).finally(() => {
       settled = true;
@@ -134,9 +134,9 @@ describe('installTool', () => {
   });
 
   it('fails with a clear message when the lock is never released', async () => {
-    await writeLock(process.pid);
+    await writeLock(process.ppid);
     await expect(install(await publish(box, '1.0.0'), { lockTimeoutMs: 300 })).rejects.toThrow(
-      new RegExp(`another tbx install is running \\(pid ${process.pid}`),
+      new RegExp(`another tbx install is running \\(pid ${process.ppid}`),
     );
     expect(await exists(paths.lock)).toBe(true);
   });

@@ -169,6 +169,9 @@ export interface LockHooks {
 
 const lockOwnerSchema = z.object({ pid: z.number().int(), createdAt: z.string() });
 
+/** Lock bodies held by a running `withLock` body in this process. */
+const HELD_LOCKS = new Set<string>();
+
 type LockOwner = z.infer<typeof lockOwnerSchema>;
 
 function isRunning(pid: number): boolean {
@@ -178,6 +181,11 @@ function isRunning(pid: number): boolean {
   } catch (error) {
     return isErrnoException(error) && error.code === 'EPERM';
   }
+}
+
+function isLive(owner: LockOwner, raw: string): boolean {
+  if (owner.pid === process.pid) return HELD_LOCKS.has(raw);
+  return isRunning(owner.pid);
 }
 
 function parseOwner(raw: string): LockOwner | null {
@@ -225,6 +233,7 @@ async function restoreLock(claimed: string, file: string): Promise<void> {
   }
 }
 
+// ponytail: two waiters can still both hold the lock if a third process acquires in the gap between our rename and the link-back of a live lock; a short-lived takeover mutex created with link() would close it.
 async function claimStale(file: string, seen: string): Promise<void> {
   const claimed = `${file}.stale.${randomBytes(TOKEN_BYTES).toString('hex')}`;
   try {
@@ -243,7 +252,7 @@ async function claimStale(file: string, seen: string): Promise<void> {
 async function removeIfStale(file: string, hooks: LockHooks): Promise<LockOwner | null> {
   const seen = await readOwner(file);
   if (seen === null) return null;
-  if (seen.owner !== null && isRunning(seen.owner.pid)) return seen.owner;
+  if (seen.owner !== null && isLive(seen.owner, seen.raw)) return seen.owner;
   await hooks.beforeStaleClaim?.();
   await claimStale(file, seen.raw);
   return null;
@@ -291,7 +300,9 @@ async function release(file: string, mine: string): Promise<void> {
  * and holds the owner's pid and start time. A second caller polls with backoff for up to
  * `timeoutMs`. A lock whose owner pid is no longer running is claimed by renaming it aside and
  * deleted only if the renamed file is still the dead owner's; a live lock renamed by mistake is
- * linked back without overwriting anything. The lock is removed afterwards only if it is still
+ * linked back without overwriting anything. A lock carrying this process's own pid counts as stale
+ * unless a body in this process holds it (for example one leaked by an earlier call that released
+ * inside a takeover's rename gap). The lock is removed afterwards only if it is still
  * ours; a failure while removing it never replaces the result or error of `body` (a lock left
  * behind holds a pid that is no longer running, so the next caller takes it over).
  *
@@ -305,9 +316,11 @@ export async function withLock<T>(
   hooks: LockHooks = {},
 ): Promise<T> {
   const mine = await acquire(file, timeoutMs, hooks);
+  HELD_LOCKS.add(mine);
   try {
     return await body();
   } finally {
+    HELD_LOCKS.delete(mine);
     await release(file, mine);
   }
 }
