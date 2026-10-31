@@ -79,14 +79,16 @@ STUB
 with_deadline() {
   local secs=$1
   shift
-  "$@" &
+  "$@" <&0 &
   local cmd_pid=$!
-  (sleep "$secs" 2>/dev/null && kill -TERM "$cmd_pid" 2>/dev/null) &
+  sleep "$secs" 2>/dev/null &
+  local sleep_pid=$!
+  (wait "$sleep_pid" 2>/dev/null && kill -TERM "$cmd_pid" 2>/dev/null) &
   local watcher_pid=$!
   local status=0
   wait "$cmd_pid" 2>/dev/null || status=$?
-  kill "$watcher_pid" 2>/dev/null
-  wait "$watcher_pid" 2>/dev/null
+  kill "$sleep_pid" "$watcher_pid" 2>/dev/null
+  wait "$sleep_pid" "$watcher_pid" 2>/dev/null
   return "$status"
 }
 
