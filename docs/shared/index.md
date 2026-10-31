@@ -22,7 +22,7 @@ Every tool reuses these modules. Check here before writing a helper.
 
 ## py
 
-- [py/cli](py/cli.md) (ToolContext, build_command, define_tool, run_tool, usage_of)
+- [py/cli](py/cli.md) (ToolContext, build_command, define_tool, load_manifest, run_tool, usage_of)
 - [py/errors](py/errors.md) (ExitCode, ToolError)
 - [py/output](py/output.md) (Output)
 - [py/retry](py/retry.md) (retry_policy, with_retry)

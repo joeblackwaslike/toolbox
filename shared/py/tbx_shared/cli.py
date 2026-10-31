@@ -2,8 +2,11 @@
 
 import re
 import sys
+import tomllib
+import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, NoReturn
 
 import click
@@ -238,3 +241,18 @@ def define_tool(manifest: Manifest, run: ToolRun) -> NoReturn:
     sub-apps mount next to it in a ``click.Group`` through ``typer.main.get_command``.
     """
     sys.exit(run_tool(manifest, run, sys.argv[1:]))
+
+
+def load_manifest(entry: str) -> dict[str, Any]:
+    """Load the ``tool.toml`` of the tool whose entry module is ``entry`` (pass ``__file__``).
+
+    In the checkout the manifest is ``<tool>/tool.toml``, next to ``src/``. In a built zipapp,
+    where ``entry`` lies inside the archive, it is the ``tool.toml`` stored at the archive root,
+    so an installed tool never reads the checkout.
+    """
+    archive = Path(entry).parent
+    if zipfile.is_zipfile(archive):
+        text = zipfile.Path(archive, "tool.toml").read_text(encoding="utf-8")
+    else:
+        text = (Path(entry).resolve().parents[1] / "tool.toml").read_text(encoding="utf-8")
+    return tomllib.loads(text)

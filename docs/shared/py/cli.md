@@ -46,6 +46,18 @@ Run a Python tool: parse ``sys.argv`` with ``run_tool`` and exit with its code.
 The command is a real Click command built from the manifest, not a Typer app. Typer
 sub-apps mount next to it in a ``click.Group`` through ``typer.main.get_command``.
 
+## load_manifest
+
+```python
+def load_manifest(entry: str) -> dict[str, Any]
+```
+
+Load the ``tool.toml`` of the tool whose entry module is ``entry`` (pass ``__file__``).
+
+In the checkout the manifest is ``<tool>/tool.toml``, next to ``src/``. In a built zipapp,
+where ``entry`` lies inside the archive, it is the ``tool.toml`` stored at the archive root,
+so an installed tool never reads the checkout.
+
 ## run_tool
 
 ```python

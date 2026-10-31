@@ -9,7 +9,7 @@
 
 ## Shared modules
 
-- [py/cli](docs/shared/py/cli.md): ToolContext, build_command, define_tool, run_tool, usage_of
+- [py/cli](docs/shared/py/cli.md): ToolContext, build_command, define_tool, load_manifest, run_tool, usage_of
 - [ts/cli](docs/shared/ts/cli.md): defineTool, OptionValue, runTool, ToolContext, ToolRun, ToolUsage, usageOf, UsageOption
 - [py/errors](docs/shared/py/errors.md): ExitCode, ToolError
 - [ts/errors](docs/shared/ts/errors.md): ExitCode, ToolError

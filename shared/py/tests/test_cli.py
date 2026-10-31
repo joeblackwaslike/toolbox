@@ -2,13 +2,14 @@ import json
 import subprocess
 import sys
 import tomllib
+import zipfile
 from pathlib import Path
 
 import click
 import pytest
 import typer
 from click.testing import CliRunner
-from tbx_shared.cli import ToolContext, build_command, run_tool, usage_of
+from tbx_shared.cli import ToolContext, build_command, load_manifest, run_tool, usage_of
 from tbx_shared.errors import ExitCode, ToolError
 
 FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures"
@@ -187,3 +188,19 @@ def test_a_typer_sub_app_mounted_next_to_the_manifest_command_exits_2_on_usage_e
         result = runner.invoke(group, argv)
         assert isinstance(result.exception, SystemExit), (argv, result.exception)
         assert result.exit_code == ExitCode.USAGE, argv
+
+
+def test_load_manifest_reads_tool_toml_next_to_src_in_the_checkout(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tool.toml").write_text('name = "hello"\n', encoding="utf-8")
+    assert load_manifest(str(tmp_path / "src" / "hello.py")) == {"name": "hello"}
+
+
+def test_load_manifest_reads_tool_toml_from_the_root_of_a_zipapp(tmp_path: Path) -> None:
+    archive = tmp_path / "bin" / "hello"
+    archive.parent.mkdir()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("tool.toml", 'name = "zipped"\n')
+        zf.writestr("hello.py", "")
+    (tmp_path / "tool.toml").write_text('name = "outside"\n', encoding="utf-8")
+    assert load_manifest(str(archive / "hello.py")) == {"name": "zipped"}
