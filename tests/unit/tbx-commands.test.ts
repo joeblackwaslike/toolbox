@@ -1,19 +1,20 @@
-import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
 import { loadManifest } from '../../shared/ts/src/manifest.ts';
 import { runTbx } from '../../tbx/src/index.ts';
+import { REPO, fixtureRoot, scaffoldRoot } from '../helpers/roots.ts';
 
-const REPO = join(import.meta.dirname, '../..');
-const FIXTURES = join(REPO, 'tests/fixtures');
 const NO_PATH = { path: '' };
 
-async function fixtureRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'tbx-cmd-'));
-  await cp(join(FIXTURES, 'tools'), join(root, 'tools'), { recursive: true });
-  return root;
+async function missing(file: string): Promise<boolean> {
+  return access(file).then(
+    () => false,
+    () => true,
+  );
 }
 
 describe('tbx list', () => {
@@ -101,6 +102,59 @@ describe('tbx gen', () => {
     const result = await runTbx(['gen'], { root, ...NO_PATH });
     expect(result.code).toBe(78);
     expect(result.stderr).toContain('"dm" collides');
+  });
+});
+
+describe('tbx new', () => {
+  it('new refuses a colliding name', async () => {
+    const root = await fixtureRoot();
+    const alias = await runTbx(['new', 'dm', '--lang', 'sh', '-y'], { root, ...NO_PATH });
+    expect(alias.code).toBe(2);
+    expect(alias.stderr).toContain('"dm" collides');
+    expect(await missing(join(root, 'tools/dm'))).toBe(true);
+    const binary = await runTbx(['new', 'git', '--lang', 'ts', '-y'], {
+      root,
+      ...(await pathWith('git')),
+    });
+    expect(binary.code).toBe(2);
+    expect(binary.stderr).toContain('"git" collides: name of tool "git" and PATH binary');
+    expect(await missing(join(root, 'tools/git'))).toBe(true);
+  });
+
+  it('new refuses an existing directory and an invalid name', async () => {
+    const root = await fixtureRoot();
+    await mkdir(join(root, 'tools/taken'));
+    const taken = await runTbx(['new', 'taken', '--lang', 'py', '-y'], { root, ...NO_PATH });
+    expect(taken.code).toBe(2);
+    expect(taken.stderr).toContain('tools/taken already exists');
+    const bad = await runTbx(['new', 'Bad_Name', '--lang', 'py', '-y'], { root, ...NO_PATH });
+    expect(bad.code).toBe(2);
+    expect(await missing(join(root, 'tools/Bad_Name'))).toBe(true);
+    const lang = await runTbx(['new', 'fine', '--lang', 'rb', '-y'], { root, ...NO_PATH });
+    expect(lang.code).toBe(2);
+  });
+
+  it('new --lang sh creates a manifest and a failing bats test', async () => {
+    const root = await scaffoldRoot();
+    const result = await runTbx(['new', 'hello', '--lang', 'sh', '-y', '--json'], {
+      root,
+      ...NO_PATH,
+    });
+    expect(result.code).toBe(0);
+    const manifest = await loadManifest(join(root, 'tools/hello/tool.toml'));
+    expect(manifest).toMatchObject({ name: 'hello', language: 'sh', version: '0.1.0' });
+    expect(await readFile(join(root, 'tools/hello/README.md'), 'utf8')).toContain('# hello');
+    expect(await missing(join(root, 'tools/hello/tests/e2e/.gitkeep'))).toBe(false);
+    const entry = spawnSync('bash', [join(root, 'tools/hello/src/hello'), '--json'], {
+      encoding: 'utf8',
+    });
+    expect(entry.stdout).toBe('"hello"\n');
+    const bats = spawnSync('bats', [join(root, 'tools/hello/tests/unit/hello.bats')], {
+      encoding: 'utf8',
+    });
+    expect(bats.status).toBe(1);
+    expect(bats.stdout).toContain('not ok 1 hello prints its result as JSON');
+    expect(bats.stdout).toContain(`'"replace with what hello prints"'`);
   });
 });
 

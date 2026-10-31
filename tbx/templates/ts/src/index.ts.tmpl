@@ -1,0 +1,8 @@
+import { fileURLToPath } from 'node:url';
+import { defineTool } from '../../../shared/ts/src/cli.ts';
+import { loadManifest } from '../../../shared/ts/src/manifest.ts';
+import { run } from './run.ts';
+
+const manifest = await loadManifest(fileURLToPath(new URL('../tool.toml', import.meta.url)));
+
+await defineTool(manifest, run);

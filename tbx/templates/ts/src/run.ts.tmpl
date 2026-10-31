@@ -1,0 +1,7 @@
+import type { ToolContext } from '../../../shared/ts/src/cli.ts';
+
+/** Does the work of {{name}} once its command line has parsed. */
+export function run(ctx: ToolContext): Promise<void> {
+  ctx.out.result('{{name}}');
+  return Promise.resolve();
+}

@@ -13,6 +13,14 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["vitest.config.ts", "shared/ts", "tbx", "tools/*/src", "tests", "tools/*/tests"],
+  "include": [
+    "vitest.config.ts",
+    "shared/ts",
+    "shared/sh",
+    "tbx",
+    "tools/*/src",
+    "tests",
+    "tools/*/tests"
+  ],
   "exclude": ["node_modules", "dist"]
 }

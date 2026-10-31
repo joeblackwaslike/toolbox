@@ -1,0 +1,19 @@
+"""Command line entry point for {{name}}."""
+
+import tomllib
+from pathlib import Path
+
+from tbx_shared.cli import ToolContext, define_tool
+
+MANIFEST = tomllib.loads(
+    (Path(__file__).resolve().parents[1] / "tool.toml").read_text(encoding="utf-8")
+)
+
+
+def run(ctx: ToolContext) -> None:
+    """Do the work of {{name}}."""
+    ctx.out.result(MANIFEST["name"])
+
+
+if __name__ == "__main__":
+    define_tool(MANIFEST, run)

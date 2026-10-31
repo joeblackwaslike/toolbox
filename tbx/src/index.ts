@@ -1,13 +1,15 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Command, CommanderError } from 'commander';
+import { Command, CommanderError, Option } from 'commander';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { ManifestError } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
 import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
 import { list } from './commands/list.ts';
+import { newTool } from './commands/new.ts';
 import type { TbxContext } from './context.ts';
+import { LANGS, type Lang } from './templates.ts';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -31,6 +33,21 @@ interface GlobalFlags {
 }
 
 type Body = (ctx: TbxContext) => Promise<void>;
+
+interface NewOptions {
+  lang: Lang;
+  summary?: string;
+}
+
+function langOption(): Option {
+  return new Option('--lang <lang>', 'Language').choices(LANGS).makeOptionMandatory();
+}
+
+function withSummary(options: NewOptions): NewOptions {
+  return options.summary === undefined
+    ? { lang: options.lang }
+    : { lang: options.lang, summary: options.summary };
+}
 
 function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
   const program = new Command('tbx')
@@ -62,6 +79,15 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .option('--check', 'Write nothing; exit 1 when a generated file is out of date')
     .action((options: { check?: boolean }, command: Command) =>
       run(command, (ctx) => gen(ctx, { check: options.check === true })),
+    );
+  program
+    .command('new')
+    .description('Scaffold tools/<name>/ with a manifest, a src entry and a failing test')
+    .argument('<name>', 'Tool name')
+    .addOption(langOption())
+    .option('-s, --summary <summary>', 'One-line summary for tool.toml')
+    .action((name: string, options: NewOptions, command: Command) =>
+      run(command, (ctx) => newTool(ctx, name, withSummary(options))),
     );
   program
     .command('help')

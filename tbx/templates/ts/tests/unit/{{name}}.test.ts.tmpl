@@ -1,0 +1,17 @@
+import { describe, expect, it } from 'vitest';
+import type { Output } from '../../../../shared/ts/src/output.ts';
+import { run } from '../../src/run.ts';
+
+describe('{{name}}', () => {
+  it('prints its result', async () => {
+    const results: unknown[] = [];
+    const notes: string[] = [];
+    const out: Output = {
+      result: (data) => results.push(data),
+      info: (message) => notes.push(message),
+      error: (message) => notes.push(message),
+    };
+    await run({ args: {}, opts: {}, json: true, interactive: false, out });
+    expect(results).toEqual(['replace with what {{name}} prints']);
+  });
+});
