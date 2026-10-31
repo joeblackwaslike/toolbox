@@ -17,7 +17,13 @@ const UNDOCUMENTED_PREFIX = 'undocumented: ';
 
 export type { GeneratedFile } from './files.ts';
 
-async function loadAll(root: string): Promise<ToolManifest[]> {
+/**
+ * Loads every `tools/<name>/tool.toml` under `root`, sorted by directory name. A directory
+ * without a `tool.toml` is skipped; a missing `tools/` gives `[]`.
+ *
+ * @throws {ManifestError} when a `tool.toml` exists but is invalid.
+ */
+export async function loadToolManifests(root: string): Promise<ToolManifest[]> {
   let entries: string[];
   try {
     entries = await readdir(path.join(root, 'tools'));
@@ -71,7 +77,7 @@ export async function generateAll(root: string): Promise<GeneratedFile[]> {
 }
 
 async function buildFiles(root: string, mods: SharedModuleDoc[]): Promise<GeneratedFile[]> {
-  const manifests = await loadAll(root);
+  const manifests = await loadToolManifests(root);
   const guides = new Set<string>();
   for (const m of manifests) {
     if ((await readIfPresent(path.join(root, 'tools', m.name, 'docs/guide.md'))) !== null) {

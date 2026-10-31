@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
-const NAME_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
+/** Valid tool names and aliases: a lowercase letter, then up to 15 lowercase letters, digits or dashes. */
+export const NAME_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
 const OPTION_PATTERN = /^[a-z][a-z0-9-]*$/;
 const SEMVER_NUMBER = String.raw`(?:0|[1-9]\d*)`;
 const SEMVER_PRERELEASE_ID = String.raw`(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)`;

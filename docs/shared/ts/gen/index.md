@@ -22,6 +22,17 @@ Renders every generated file for the repo at `root`: per-tool README and complet
 `tools/<name>/tool.toml`, `docs/catalog.md`, `docs/llms.txt`, and the shared module pages.
 Output is deterministic and sorted by path.
 
+## loadToolManifests
+
+```ts
+async function loadToolManifests(root: string): Promise<ToolManifest[]>
+```
+
+Loads every `tools/<name>/tool.toml` under `root`, sorted by directory name. A directory
+without a `tool.toml` is skipped; a missing `tools/` gives `[]`.
+
+- @throws {ManifestError} when a `tool.toml` exists but is invalid.
+
 ## syncGenerated
 
 ```ts

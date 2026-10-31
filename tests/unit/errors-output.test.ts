@@ -55,4 +55,19 @@ describe('createOutput', () => {
     createOutput({ json: false }).result('plain');
     expect(out.join('')).toBe('plain\n');
   });
+
+  it('writes to the given streams instead of the process streams', () => {
+    const { out, err } = capture();
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const output = createOutput({
+      json: true,
+      streams: { stdout: (text) => stdout.push(text), stderr: (text) => stderr.push(text) },
+    });
+    output.result([1]);
+    output.info('note');
+    expect(stdout).toEqual(['[1]\n']);
+    expect(stderr).toEqual(['note\n']);
+    expect([...out, ...err]).toEqual([]);
+  });
 });

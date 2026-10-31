@@ -5,11 +5,12 @@
 ## createOutput
 
 ```ts
-function createOutput(options: { json: boolean }): Output
+function createOutput(options: { json: boolean; streams?: OutputStreams }): Output
 ```
 
 Creates an `Output`. With `json: true`, `result` writes exactly one JSON document to
-stdout.
+stdout. `streams` defaults to `process.stdout` and `process.stderr`; pass your own to
+capture output, for example in tests.
 
 ## Output
 
@@ -19,3 +20,19 @@ interface Output
 
 Output channel for a tool. `result` is the program's answer and goes to stdout; `info` and
 `error` are diagnostics and go to stderr, so stdout stays machine-readable.
+
+## OutputStreams
+
+```ts
+interface OutputStreams
+```
+
+Where an `Output` writes its text; each function receives complete lines.
+
+## PROCESS_STREAMS
+
+```ts
+const PROCESS_STREAMS: OutputStreams
+```
+
+`OutputStreams` that write to `process.stdout` and `process.stderr`.

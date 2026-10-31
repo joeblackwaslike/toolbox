@@ -53,6 +53,14 @@ Error thrown for any invalid or conflicting tool manifest. `fieldPath` is the do
 of the failing field (for example `unit.calendar.hour`), or `(root)` when no single field
 is at fault.
 
+## NAME_PATTERN
+
+```ts
+const NAME_PATTERN
+```
+
+Valid tool names and aliases: a lowercase letter, then up to 15 lowercase letters, digits or dashes.
+
 ## OptSpec
 
 ```ts

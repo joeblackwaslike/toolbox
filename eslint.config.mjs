@@ -52,7 +52,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['shared/**/*.ts'],
+    files: ['shared/**/*.ts', 'tbx/**/*.ts', 'tools/**/*.ts'],
     rules: {
       'import-x/no-relative-parent-imports': 'off',
     },
