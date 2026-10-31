@@ -205,6 +205,37 @@ default = true
     expect(() => parseManifest(toml)).toThrow(/args\.1\.name.*duplicate/);
   });
 
+  it.each(['foo--bar', 'foo-', 'foo-bar-', 'foo--'])('rejects the option name %s', (long) => {
+    expect(fieldPathOf(VALID.replace('long = "force"', `long = "${long}"`))).toBe('options.0.long');
+  });
+
+  it.each(['foo--bar', 'foo-'])('rejects the argument name %s', (name) => {
+    expect(fieldPathOf(VALID.replace('name = "target"', `name = "${name}"`))).toBe('args.0.name');
+  });
+
+  it('rejects two options whose names normalize to the same identifier', () => {
+    const toml = VALID.replace('long = "force"', 'long = "foo1"').concat(
+      '\n[[options]]\nlong = "foo-1"\nsummary = "Other"\ntype = "string"\n',
+    );
+    expect(() => parseManifest(toml)).toThrow(/options\.1\.long.*"foo-1".*"foo1"/);
+  });
+
+  it('rejects an argument and an option whose names normalize to the same identifier', () => {
+    const toml = VALID.replace('name = "target"', 'name = "dry1"').replace(
+      'long = "force"',
+      'long = "dry-1"',
+    );
+    expect(() => parseManifest(toml)).toThrow(/"dry-1".*"dry1"/);
+  });
+
+  it('accepts ordinary hyphenated names with digit segments', () => {
+    const toml = VALID.replace('long = "force"', 'long = "max-2-retries"').replace(
+      'name = "target"',
+      'name = "out-dir"',
+    );
+    expect(parseManifest(toml).options[0]?.long).toBe('max-2-retries');
+  });
+
   it('rejects an argument and an option with the same name', () => {
     const toml = VALID.replace('name = "target"', 'name = "force"');
     expect(() => parseManifest(toml)).toThrow(/duplicate/);

@@ -5,7 +5,7 @@ import { isErrnoException, messageOf } from './errors.ts';
 
 /** Valid tool names and aliases: a lowercase letter, then up to 15 lowercase letters, digits or dashes. */
 export const NAME_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
-const OPTION_PATTERN = /^[a-z][a-z0-9-]*$/;
+const OPTION_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SEMVER_NUMBER = String.raw`(?:0|[1-9]\d*)`;
 const SEMVER_PRERELEASE_ID = String.raw`(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)`;
 const SEMVER_BUILD_ID = '[0-9a-zA-Z-]+';
@@ -185,16 +185,47 @@ interface ParameterSpecs {
   options: { long: string; short?: string | undefined }[];
 }
 
+/**
+ * How each generated parser turns an argument or option name into an identifier: Commander's
+ * camelCase attribute, the Python snake_case form and the shell `TBX_OPT_`/`TBX_ARG_` suffix.
+ */
+const NORMALIZED_FORMS: readonly [string, (name: string) => string][] = [
+  [
+    'TypeScript',
+    (name) => name.replaceAll(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase()),
+  ],
+  ['Python', (name) => name.replaceAll('-', '_')],
+  ['shell', (name) => name.toUpperCase().replaceAll('-', '_')],
+];
+
+function normalizedCollision(name: string, seen: ReadonlyMap<string, string>): string | undefined {
+  for (const [language, normalize] of NORMALIZED_FORMS) {
+    const form = normalize(name);
+    for (const other of seen.keys()) {
+      if (other !== name && normalize(other) === form) {
+        return `"${name}" collides with "${other}" (both become ${form} in ${language})`;
+      }
+    }
+  }
+  return undefined;
+}
+
 function addDuplicateIssues(manifest: ParameterSpecs, ctx: z.RefinementCtx): void {
   const names = new Map<string, string>();
   const shorts = new Set<string>();
   const claim = (key: string, owner: string, path: (string | number)[]): void => {
     const existing = names.get(key);
-    if (existing === undefined) {
-      names.set(key, owner);
+    if (existing !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path,
+        message: `duplicate name "${key}", already ${existing}`,
+      });
       return;
     }
-    ctx.addIssue({ code: 'custom', path, message: `duplicate name "${key}", already ${existing}` });
+    const collision = normalizedCollision(key, names);
+    if (collision !== undefined) ctx.addIssue({ code: 'custom', path, message: collision });
+    names.set(key, owner);
   };
   for (const [index, arg] of manifest.args.entries()) {
     claim(arg.name, `argument ${index}`, ['args', index, 'name']);
