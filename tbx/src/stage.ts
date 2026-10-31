@@ -18,6 +18,14 @@ import type { Env } from './state.ts';
 export const ARTIFACT_MARKER = 'artifact.sha256';
 const MANIFEST_FILE = 'tool.toml';
 const REGULAR_FILE = '0';
+/** A tool whose `platforms` leaves out this machine's platform; exit 69. */
+export class UnsupportedPlatformError extends ToolError {
+  constructor(message: string) {
+    super(message, ExitCode.unavailable);
+    this.name = 'UnsupportedPlatformError';
+  }
+}
+
 /** The `platforms` value of the machine this runs on. */
 export const CURRENT_PLATFORM = process.platform === 'darwin' ? 'macos' : 'linux';
 
@@ -76,9 +84,8 @@ function artifactManifest(text: string, entry: IndexEntry): ToolManifest {
     );
   }
   if (!m.platforms.includes(CURRENT_PLATFORM)) {
-    throw new ToolError(
+    throw new UnsupportedPlatformError(
       `${m.name} does not support ${CURRENT_PLATFORM} (platforms: ${m.platforms.join(', ')})`,
-      ExitCode.unavailable,
     );
   }
   return m;

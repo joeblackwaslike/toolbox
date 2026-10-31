@@ -1,22 +1,12 @@
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  readlink,
-  rename,
-  rm,
-  stat,
-  symlink,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink } from 'node:fs/promises';
 import path from 'node:path';
-import { ExitCode, ToolError, isErrnoException } from '../../../shared/ts/src/errors.ts';
+import { ExitCode, ToolError, isErrnoException, messageOf } from '../../../shared/ts/src/errors.ts';
 import { ManifestError, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
 import { EXECUTABLE_MODE, isWithin } from '../../../shared/ts/src/paths.ts';
 import { sha256 } from '../archive.ts';
 import type { TbxContext } from '../context.ts';
-import { ARTIFACT_MARKER, stageArtifact } from '../stage.ts';
+import { assertLinksOwned, identifiers, linksCurrent, toolLinks } from '../links.ts';
+import { ARTIFACT_MARKER, UnsupportedPlatformError, stageArtifact } from '../stage.ts';
 import {
   type Env,
   type TbxPaths,
@@ -96,14 +86,6 @@ async function readText(file: string): Promise<string | null> {
   } catch (error) {
     if (isErrnoException(error) && error.code === 'ENOENT') return null;
     throw error;
-  }
-}
-
-async function readLink(file: string): Promise<string | null> {
-  try {
-    return await readlink(file);
-  } catch {
-    return null;
   }
 }
 
@@ -191,69 +173,6 @@ async function verifiedBytes(artifact: string, entry: IndexEntry): Promise<Buffe
     );
   }
   return bytes;
-}
-
-function identifiers(m: ToolManifest): string[] {
-  return m.alias === undefined ? [m.name] : [m.name, m.alias];
-}
-
-async function linkTarget(link: string): Promise<string | null | undefined> {
-  try {
-    const info = await lstat(link);
-    if (!info.isSymbolicLink()) return null;
-  } catch (error) {
-    if (isErrnoException(error) && error.code === 'ENOENT') return undefined;
-    throw error;
-  }
-  return path.resolve(path.dirname(link), await readlink(link));
-}
-
-/**
- * Refuses unless every link `m` needs (`bin/<name>` and `bin/<alias>`) is missing or is a
- * symlink into this tool's own directory, so a file the user put in a shared bin directory, or
- * another installed tool's link, is never replaced.
- */
-async function assertLinksOwned(m: ToolManifest, paths: TbxPaths): Promise<void> {
-  const toolDir = path.join(paths.tools, m.name);
-  for (const identifier of identifiers(m)) {
-    const link = path.join(paths.bin, identifier);
-    const target = await linkTarget(link);
-    if (target === undefined || (target !== null && isWithin(toolDir, target))) continue;
-    const owner =
-      target !== null && isWithin(paths.tools, target)
-        ? `it links to another installed tool (${path.relative(paths.tools, target).split(path.sep)[0] ?? ''})`
-        : 'it is not a tbx link';
-    throw new ToolError(
-      `cannot link ${identifier} for ${m.name}: ${link} exists and ${owner}; remove it or set TBX_BIN_DIR to another directory`,
-      ExitCode.config,
-    );
-  }
-}
-
-/** The links in the bin directory that point into `tools/<name>/`. */
-async function toolLinks(paths: TbxPaths, name: string): Promise<string[]> {
-  const toolDir = path.join(paths.tools, name);
-  let entries: string[];
-  try {
-    entries = await readdir(paths.bin);
-  } catch (error) {
-    if (isErrnoException(error) && error.code === 'ENOENT') return [];
-    throw error;
-  }
-  const links: string[] = [];
-  for (const entry of entries) {
-    const link = path.join(paths.bin, entry);
-    const target = await linkTarget(link);
-    if (typeof target === 'string' && isWithin(toolDir, target)) links.push(link);
-  }
-  return links;
-}
-
-async function linksCurrent(m: ToolManifest, paths: TbxPaths, binary: string): Promise<boolean> {
-  for (const identifier of identifiers(m)) {
-    if ((await readLink(path.join(paths.bin, identifier))) !== binary) return false;
-  }
-  return true;
 }
 
 async function activate(
@@ -402,31 +321,80 @@ export function defaultIndex(root: string): string {
   return path.join(root, DEFAULT_RELEASE_DIR, 'index.json');
 }
 
+/** Options for `install`; `lockTimeoutMs` is for library callers and tests, not a CLI flag. */
+export interface InstallCommandOptions {
+  index?: string;
+  lockTimeoutMs?: number;
+}
+
+type InstallOutcome =
+  | { kind: 'installed'; name: string; version: string }
+  | { kind: 'skipped'; name: string }
+  | { kind: 'failed'; name: string; error: unknown };
+
+async function installSingle(
+  ctx: TbxContext,
+  name: string,
+  index: string,
+  options: InstallCommandOptions,
+): Promise<string> {
+  await installTool({
+    name,
+    index,
+    home: ctx.home,
+    env: ctx.env,
+    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
+    warn: (message) => {
+      ctx.out.info(message);
+    },
+  });
+  const state = await readState(tbxPaths(ctx.home, ctx.env));
+  return recordOf(state, name)?.version ?? '';
+}
+
 async function installOne(
   ctx: TbxContext,
   name: string,
   index: string,
-  skipUnsupported: boolean,
-): Promise<{ name: string; version: string } | null> {
+  options: InstallCommandOptions,
+): Promise<InstallOutcome> {
   try {
-    await installTool({
-      name,
-      index,
-      home: ctx.home,
-      env: ctx.env,
-      warn: (message) => {
-        ctx.out.info(message);
-      },
-    });
+    return { kind: 'installed', name, version: await installSingle(ctx, name, index, options) };
   } catch (error) {
-    if (!(skipUnsupported && error instanceof ToolError && error.code === ExitCode.unavailable)) {
-      throw error;
+    if (error instanceof UnsupportedPlatformError) {
+      ctx.out.info(`skipped ${name}: ${error.message}`);
+      return { kind: 'skipped', name };
     }
-    ctx.out.info(`skipped ${name}: ${error.message}`);
-    return null;
+    return { kind: 'failed', name, error };
   }
-  const state = await readState(tbxPaths(ctx.home, ctx.env));
-  return { name, version: recordOf(state, name)?.version ?? '' };
+}
+
+function reportBulk(
+  ctx: TbxContext,
+  outcomes: InstallOutcome[],
+): { name: string; error: unknown }[] {
+  const installed = outcomes.flatMap((o) =>
+    o.kind === 'installed' ? [{ name: o.name, version: o.version }] : [],
+  );
+  const skipped = outcomes.flatMap((o) => (o.kind === 'skipped' ? [o.name] : []));
+  const failed = outcomes.flatMap((o) => (o.kind === 'failed' ? [o] : []));
+  for (const tool of failed) ctx.out.error(`error: ${tool.name}: ${messageOf(tool.error)}`);
+  ctx.out.result(
+    ctx.json
+      ? {
+          installed,
+          ...(skipped.length > 0 ? { skipped } : {}),
+          ...(failed.length > 0 ? { failed: failed.map((tool) => tool.name) } : {}),
+        }
+      : installed.map((tool) => `installed ${tool.name} ${tool.version}`).join('\n'),
+  );
+  return failed;
+}
+
+function bulkFailure(failed: { name: string; error: unknown }[]): ToolError {
+  const [first] = failed;
+  const code = first?.error instanceof ToolError ? first.error.code : ExitCode.failure;
+  return new ToolError(`install failed: ${failed.map((tool) => tool.name).join(', ')}`, code);
 }
 
 async function indexNames(index: string): Promise<string[]> {
@@ -435,29 +403,32 @@ async function indexNames(index: string): Promise<string[]> {
 }
 
 /**
- * `tbx install <name|all> [--index <path>]`: installs one tool, or every tool in the index;
- * with `all`, a tool that does not support this platform is skipped and reported.
+ * `tbx install <name|all> [--index <path>]`: installs one tool, or every tool in the index.
+ * With `all`, only a tool that does not support this platform is skipped (and reported); any
+ * other failure, such as a lock timeout or a missing unit validator under CI, is printed as
+ * `<name>: <message>`, the remaining tools are still attempted, and the command then fails with
+ * the first failure's exit code, naming every tool that failed. A single tool's error propagates
+ * as is.
  */
 export async function install(
   ctx: TbxContext,
   target: string,
-  options: { index?: string },
+  options: InstallCommandOptions,
 ): Promise<void> {
   const index = path.resolve(options.index ?? defaultIndex(ctx.root));
-  const all = target === 'all';
-  const names = all ? await indexNames(index) : [target];
-  const installed: { name: string; version: string }[] = [];
-  const skipped: string[] = [];
-  for (const name of names) {
-    const result = await installOne(ctx, name, index, all);
-    if (result === null) skipped.push(name);
-    else installed.push(result);
+  if (target !== 'all') {
+    const version = await installSingle(ctx, target, index, options);
+    ctx.out.result(
+      ctx.json ? { installed: [{ name: target, version }] } : `installed ${target} ${version}`,
+    );
+    return;
   }
-  ctx.out.result(
-    ctx.json
-      ? { installed, ...(skipped.length > 0 ? { skipped } : {}) }
-      : installed.map((tool) => `installed ${tool.name} ${tool.version}`).join('\n'),
-  );
+  const outcomes: InstallOutcome[] = [];
+  for (const name of await indexNames(index)) {
+    outcomes.push(await installOne(ctx, name, index, options));
+  }
+  const failed = reportBulk(ctx, outcomes);
+  if (failed.length > 0) throw bulkFailure(failed);
 }
 
 /** `tbx uninstall <name>`: removes an installed tool, its link and its record. */
