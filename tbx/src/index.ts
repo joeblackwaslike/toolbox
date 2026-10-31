@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { constants, homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError, Option } from 'commander';
@@ -5,12 +7,15 @@ import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { ManifestError } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
 import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
+import { build } from './commands/build.ts';
 import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
+import { install, uninstall } from './commands/install.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
 import type { TbxContext } from './context.ts';
+import { readState, tbxPaths } from './state.ts';
 import { LANGS, type Lang } from './templates.ts';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -27,11 +32,17 @@ export interface TbxEnv {
 
 const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
 
+function homeOf(variables: Readonly<Record<string, string | undefined>>): string {
+  return variables.HOME === undefined || variables.HOME === '' ? homedir() : variables.HOME;
+}
+
 function contextBase(env: TbxEnv): Omit<TbxContext, 'json' | 'out'> {
   const variables = env.vars ?? process.env;
   const pathVariable = env.path ?? variables.PATH ?? '';
   return {
     root: env.root,
+    home: homeOf(variables),
+    env: variables,
     ci: CI_VALUES.has(variables.CI ?? ''),
     pathBinaries: () => binariesOnPath(pathVariable, [env.root, tbxBinDir(variables)]),
   };
@@ -65,6 +76,34 @@ function withSummary(options: NewOptions): NewOptions {
     : { lang: options.lang, summary: options.summary };
 }
 
+type Runner = (command: Command, body: Body) => Promise<void>;
+
+function addReleaseCommands(program: Command, run: Runner): void {
+  program
+    .command('build')
+    .description('Build tools into self-contained artifacts and a release index.json')
+    .argument('<name>', 'Tool name, or all')
+    .option('-o, --out <dir>', 'Output directory (default: dist/release)')
+    .action((name: string, options: { out?: string }, command: Command) =>
+      run(command, (ctx) => build(ctx, name, options)),
+    );
+  program
+    .command('install')
+    .description('Install tools from a release index into the managed bin directory')
+    .argument('<name>', 'Tool name, or all')
+    .option('--index <path>', 'Release index.json (default: dist/release/index.json)')
+    .action((name: string, options: { index?: string }, command: Command) =>
+      run(command, (ctx) => install(ctx, name, options)),
+    );
+  program
+    .command('uninstall')
+    .description('Remove an installed tool, its link and its record')
+    .argument('<name>', 'Tool name')
+    .action((name: string, _options: unknown, command: Command) =>
+      run(command, (ctx) => uninstall(ctx, name)),
+    );
+}
+
 function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
   const program = new Command('tbx')
     .description('Scaffold, document and inspect the tools in this repo')
@@ -80,7 +119,7 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
         streams.stderr(text);
       },
     });
-  const run = (command: Command, body: Body): Promise<void> => {
+  const run: Runner = (command, body) => {
     const json = command.optsWithGlobals<GlobalFlags>().json === true;
     const out = createOutput({ json, streams });
     return body({ ...contextBase(env), json, out });
@@ -130,6 +169,7 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .action((name: string, options: { lang: Lang }, command: Command) =>
       run(command, (ctx) => newShared(ctx, name, options.lang)),
     );
+  addReleaseCommands(program, run);
   program
     .command('help')
     .description("Print a tool's usage, as JSON with --json")
@@ -151,13 +191,44 @@ function exitCodeOf(error: unknown, streams: OutputStreams): number {
   throw error;
 }
 
+const SIGNAL_EXIT_BASE = 128;
+
+async function installedLink(
+  program: Command,
+  argv: readonly string[],
+  env: TbxEnv,
+): Promise<string | null> {
+  const [first] = argv;
+  if (first === undefined || first.startsWith('-')) return null;
+  if (program.commands.some((command) => command.name() === first)) return null;
+  const variables = env.vars ?? process.env;
+  const paths = tbxPaths(homeOf(variables), variables);
+  const state = await readState(paths);
+  return state.tools[first] === undefined ? null : path.join(paths.bin, first);
+}
+
+function dispatch(link: string, args: readonly string[], streams: OutputStreams): number {
+  const child = spawnSync(link, args, { stdio: 'inherit' });
+  if (child.error !== undefined) {
+    streams.stderr(
+      `error: cannot run ${link}: ${child.error.message}; reinstall it with tbx install\n`,
+    );
+    return ExitCode.unavailable;
+  }
+  if (child.signal !== null) return SIGNAL_EXIT_BASE + constants.signals[child.signal];
+  return child.status ?? ExitCode.failure;
+}
+
 async function execute(
   argv: readonly string[],
   env: TbxEnv,
   streams: OutputStreams,
 ): Promise<number> {
   try {
-    await buildProgram(env, streams).parseAsync(argv, { from: 'user' });
+    const program = buildProgram(env, streams);
+    const link = await installedLink(program, argv, env);
+    if (link !== null) return dispatch(link, argv.slice(1), streams);
+    await program.parseAsync(argv, { from: 'user' });
     return ExitCode.ok;
   } catch (error) {
     return exitCodeOf(error, streams);
@@ -168,7 +239,9 @@ async function execute(
  * Runs `tbx` with `argv` (no program name) against `env.root` and returns the exit code with
  * the captured stdout and stderr, instead of writing to the process streams or exiting. Usage
  * errors and unknown flags exit 2; a `ToolError` exits with its code; an invalid manifest
- * exits 78.
+ * exits 78. A first argument that is not a command but names a tool in `installed.json` runs
+ * that tool's managed-bin link with the remaining arguments and inherited stdio, returning its
+ * exit code (128 plus the signal number when it is killed).
  */
 export async function runTbx(argv: string[], env: TbxEnv): Promise<TbxResult> {
   let stdout = '';

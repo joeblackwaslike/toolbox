@@ -12,6 +12,10 @@ export interface TbxContext {
    * repo root or the tbx-managed bin directory.
    */
   readonly pathBinaries: () => Promise<PathBinary[]>;
+  /** Home directory installs resolve against: `HOME` from `env`, else the OS home. */
+  readonly home: string;
+  /** Environment for the install layout (`XDG_*`, `TBX_BIN_DIR`), `CI` and test hooks. */
+  readonly env: Readonly<Record<string, string | undefined>>;
   /** True when `--json` was given. */
   readonly json: boolean;
   /** Output channel, in JSON mode when `json` is true. */
