@@ -20,7 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # Both legs are arm64. x64 is not covered here.
+        os: [macos-15, ubuntu-24.04-arm]
     env:
       CI: "1"
       HUSKY: "0"
@@ -45,10 +46,8 @@ jobs:
           SHFMT_VERSION: v3.14.1
         run: |
           case "${RUNNER_OS}-${RUNNER_ARCH}" in
-            Linux-X64) asset=linux_amd64 sha=76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7bf ;;
             Linux-ARM64) asset=linux_arm64 sha=5f2db09dae91fca848f7adbdd014632e921a383863a2ad7e0450ad3aba0c6489 ;;
             macOS-ARM64) asset=darwin_arm64 sha=b7c872db63553ccffc7253aba3ed7d4885a27d83f1ba567b1138c6315a5847e5 ;;
-            macOS-X64) asset=darwin_amd64 sha=d33eee0da0f92835b3562e9767a05cee7e4eaeef47daa03bfd09da17b4b590a6 ;;
             *) echo "no pinned shfmt for ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
           esac
           dir="${RUNNER_TEMP}/shfmt"

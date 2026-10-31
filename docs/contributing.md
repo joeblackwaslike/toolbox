@@ -46,7 +46,7 @@ pnpm test tests/e2e/cross-tool.test.ts
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pull requests and on pushes to main, on macOS and Ubuntu: `just lint`, `just test`, `pnpm tbx verify --all`, `just gen-check`, with `CI=1`.
+`.github/workflows/ci.yml` runs on pull requests and on pushes to main, on two arm64 runners, `macos-15` and `ubuntu-24.04-arm`: `just lint`, `just test`, `pnpm tbx verify --all`, `just gen-check`, with `CI=1`.
 
 ## Git hooks
 
