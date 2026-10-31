@@ -5,12 +5,12 @@ import { ExitCode, ToolError, messageOf } from '../../../shared/ts/src/errors.ts
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
 import type { ToolManifest } from '../../../shared/ts/src/manifest.ts';
 import { tbxBinDir } from '../../../shared/ts/src/paths.ts';
-import type { TbxContext } from '../context.ts';
+import { type TbxContext, isCi } from '../context.ts';
 import { type IsolatedEnv, createIsolatedEnv } from '../isolated-env.ts';
 import { CURRENT_PLATFORM } from '../stage.ts';
 import { type StepOutcome, lintStep, unitStep, unitTestEnv } from '../verify-checks.ts';
 import {
-  type Installed,
+  type Candidate,
   contractStep,
   driftStep,
   endToEndStep,
@@ -40,7 +40,6 @@ export interface VerifyOptions {
 
 const PTY_DEADLINE_MS = 30_000;
 const STATUS_WIDTH = 8;
-const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
 
 function discard(): void {
   /* The units step reports a skipped validator itself. */
@@ -50,7 +49,7 @@ async function buildAndInstall(
   root: string,
   m: ToolManifest,
   isolated: IsolatedEnv,
-): Promise<Installed | string> {
+): Promise<Exclude<Candidate, { kind: 'unsupported' }>> {
   const out = await mkdtemp(path.join(tmpdir(), 'tbx-verify-build-'));
   try {
     let index: string;
@@ -61,7 +60,7 @@ async function buildAndInstall(
         { name: m.name, version: built.version, artifact, sha256: built.sha256 },
       ]);
     } catch (error) {
-      return `build failed: ${messageOf(error)}`;
+      return { kind: 'failed', stage: 'build', message: messageOf(error) };
     }
     try {
       await installTool({
@@ -72,9 +71,9 @@ async function buildAndInstall(
         warn: discard,
       });
     } catch (error) {
-      return `install failed: ${messageOf(error)}`;
+      return { kind: 'failed', stage: 'install', message: messageOf(error) };
     }
-    return { link: path.join(tbxBinDir(isolated.env), m.name), isolated };
+    return { kind: 'ready', link: path.join(tbxBinDir(isolated.env), m.name), isolated };
   } finally {
     await rm(out, { recursive: true, force: true });
   }
@@ -100,35 +99,46 @@ function skipped(detail: string): StepOutcome {
   return { status: 'skipped', detail };
 }
 
+type CandidateStep = Exclude<VerifyStepName, 'lint' | 'unit'>;
+
 async function againstCandidate(
   root: string,
   m: ToolManifest,
   options: VerifyOptions,
   isolated: IsolatedEnv,
-): Promise<StepOutcome[]> {
+): Promise<Record<CandidateStep, StepOutcome>> {
   const elsewhere = skipped(`${m.name} does not run on ${CURRENT_PLATFORM}`);
   const link = path.join(tbxBinDir(isolated.env), m.name);
-  const ci = options.ci ?? CI_VALUES.has(process.env.CI ?? '');
+  const ci = options.ci ?? isCi(process.env);
   if (!m.platforms.includes(CURRENT_PLATFORM)) {
-    const units = m.unit === undefined ? skipped('no unit') : elsewhere;
-    return [await driftStep(root, m, null), elsewhere, elsewhere, units];
+    return {
+      drift: await driftStep(root, m, { kind: 'unsupported' }),
+      contract: elsewhere,
+      e2e: elsewhere,
+      units: m.unit === undefined ? skipped('no unit') : elsewhere,
+    };
   }
-  const installed = await buildAndInstall(root, m, isolated);
-  if (typeof installed === 'string') {
-    const unbuilt = skipped(installed.startsWith('build') ? 'build failed' : 'install failed');
-    return [
-      await driftStep(root, m, installed),
-      unbuilt,
-      unbuilt,
-      await unitsStep(m, link, isolated.home, ci),
-    ];
+  const candidate = await buildAndInstall(root, m, isolated);
+  const drift = await driftStep(root, m, candidate);
+  if (candidate.kind !== 'ready') {
+    const unbuilt = skipped(`${candidate.stage} failed`);
+    return {
+      drift,
+      contract: unbuilt,
+      e2e: unbuilt,
+      units: await unitsStep(m, link, isolated.home, ci),
+    };
   }
-  return [
-    await driftStep(root, m, installed),
-    await contractStep(m, installed),
-    await endToEndStep(root, m, installed, options.ptyDeadlineMs ?? PTY_DEADLINE_MS),
-    await unitsStep(m, link, isolated.home, ci),
-  ];
+  const contract = await contractStep(m, candidate);
+  const endToEnd = await endToEndStep(root, m, candidate, options.ptyDeadlineMs ?? PTY_DEADLINE_MS);
+  return { drift, contract, e2e: endToEnd, units: await unitsStep(m, link, isolated.home, ci) };
+}
+
+/** The outcomes as a report's `steps`, in `VERIFY_STEPS` order. */
+export function stepsInOrder(
+  outcomes: Readonly<Record<VerifyStepName, StepOutcome>>,
+): VerifyReport['steps'] {
+  return VERIFY_STEPS.map((name) => ({ name, ...outcomes[name] }));
 }
 
 /**
@@ -155,17 +165,13 @@ export async function verifyTool(
     ? await isolatedUnitStep(root, m)
     : skipped(`${name} does not run on ${CURRENT_PLATFORM}`);
   const isolated = await createIsolatedEnv();
-  let rest: StepOutcome[];
+  let rest: Record<CandidateStep, StepOutcome>;
   try {
     rest = await againstCandidate(root, m, options, isolated);
   } finally {
     await isolated.cleanup();
   }
-  const outcomes = [lint, unit, ...rest];
-  const steps = VERIFY_STEPS.map((stepName, index) => ({
-    name: stepName,
-    ...(outcomes[index] ?? skipped('not run')),
-  }));
+  const steps = stepsInOrder({ lint, unit, ...rest });
   return { steps, ok: steps.every((step) => step.status !== 'fail') };
 }
 

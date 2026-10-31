@@ -1,13 +1,55 @@
 import { spawn } from 'node:child_process';
+import type { Readable } from 'node:stream';
+
+/** Most bytes of output `runOpen` and `runInPty` keep from one command, over all its streams. */
+export const MAX_CAPTURE_BYTES = 8_388_608;
 
 /** Result of running a command with `runOpen`. */
 export interface RunResult {
-  /** Exit code, or `null` when the command was killed by a signal or the timeout. */
+  /** Exit code, or `null` when the command was killed by a signal, the timeout or the cap. */
   status: number | null;
   stdout: string;
   stderr: string;
   /** True when the timeout passed and the command was killed. */
   timedOut: boolean;
+  /** True when the output passed the capture cap: the rest was dropped and the command killed. */
+  truncated: boolean;
+}
+
+/** Text read so far from each captured stream, and whether the cap cut it short. */
+export interface CapturedOutput {
+  texts: string[];
+  truncated: boolean;
+}
+
+/**
+ * Reads `streams` as UTF-8 (a character split across chunks decodes whole) into
+ * `CapturedOutput.texts`, keeping at most `limit` bytes over all of them. The chunk that passes
+ * the cap is cut at the limit, later ones are dropped, `truncated` is set and `onOverflow` runs
+ * once.
+ */
+export function captureOutput(
+  streams: readonly Readable[],
+  limit: number,
+  onOverflow: () => void,
+): CapturedOutput {
+  const captured: CapturedOutput = { texts: streams.map(() => ''), truncated: false };
+  let room = limit;
+  for (const [index, stream] of streams.entries()) {
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk: string) => {
+      if (captured.truncated) return;
+      const bytes = Buffer.byteLength(chunk);
+      const kept = bytes <= room ? chunk : Buffer.from(chunk).subarray(0, room).toString('utf8');
+      captured.texts[index] = `${captured.texts[index] ?? ''}${kept}`;
+      room -= Buffer.byteLength(kept);
+      if (bytes > Buffer.byteLength(kept)) {
+        captured.truncated = true;
+        onOverflow();
+      }
+    });
+  }
+  return captured;
 }
 
 /** Options for `runOpen` and `runBounded`. */
@@ -20,6 +62,8 @@ export interface RunOptions {
   cwd?: string;
   /** Close stdin right away instead of leaving it open, so a read sees end of input. */
   closeStdin?: boolean;
+  /** Output cap in bytes; defaults to `MAX_CAPTURE_BYTES`. */
+  maxCaptureBytes?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -43,7 +87,8 @@ export function signalGroup(pid: number | undefined, signal: NodeJS.Signals): vo
  * Runs a command with stdin left open as a non-TTY pipe (unless `closeStdin`), so a command
  * that tries to prompt hangs and is killed after `timeoutMs` instead of reading EOF. The command
  * runs in its own process group and the timeout kills the whole group, so children holding its
- * output open cannot keep the call waiting. Lookup of `command` uses the `PATH` in `env`.
+ * output open cannot keep the call waiting. Output past `maxCaptureBytes` is dropped and the
+ * group is killed (`truncated: true`). Lookup of `command` uses the `PATH` in `env`.
  *
  * @throws {Error} when the command cannot be started.
  */
@@ -59,19 +104,18 @@ export function runOpen(
       env: options.env ?? process.env,
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
-    let stdout = '';
-    let stderr = '';
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       signalGroup(child.pid, 'SIGKILL');
     }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
+    const captured = captureOutput(
+      [child.stdout, child.stderr],
+      options.maxCaptureBytes ?? MAX_CAPTURE_BYTES,
+      () => {
+        signalGroup(child.pid, 'SIGKILL');
+      },
+    );
     child.on('error', (error) => {
       clearTimeout(timer);
       reject(error);
@@ -79,7 +123,8 @@ export function runOpen(
     child.on('close', (status) => {
       clearTimeout(timer);
       child.stdin.destroy();
-      resolve({ status, stdout, stderr, timedOut });
+      const [stdout = '', stderr = ''] = captured.texts;
+      resolve({ status, stdout, stderr, timedOut, truncated: captured.truncated });
     });
     if (options.closeStdin === true) child.stdin.end();
   });

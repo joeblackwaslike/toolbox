@@ -39,6 +39,28 @@ describe('runInPty', () => {
     expect(result.output).not.toContain('tbx-pty-started');
   });
 
+  it('decodes a multibyte character split across two chunks', async () => {
+    const result = await runInPty(
+      ['sh', '-c', String.raw`printf '\342'; sleep 0.2; printf '\202\254\n'`],
+      { env: ENV, deadlineMs: DEADLINE_MS },
+    );
+    expect(result.output).toContain('€');
+    expect(result.output).not.toContain('�');
+  });
+
+  it('truncates output over the capture cap and marks it', async () => {
+    const result = await runInPty(
+      ['sh', '-c', 'i=0; while [ $i -lt 200 ]; do echo aaaaaaaaaa; i=$((i+1)); done'],
+      {
+        env: ENV,
+        deadlineMs: DEADLINE_MS,
+        maxCaptureBytes: 500,
+      },
+    );
+    expect(result.truncated).toBe(true);
+    expect(result.output.length).toBeLessThanOrEqual(500);
+  });
+
   it('feeds input to the session as typed lines', async () => {
     const result = await runInPty(['sh', '-c', 'read a; read b; echo "got:$a,$b"'], {
       env: ENV,

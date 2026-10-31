@@ -30,6 +30,28 @@ export interface Installed {
   isolated: IsolatedEnv;
 }
 
+/**
+ * What became of the candidate build: installed and `ready`, `failed` at the build or the
+ * install stage with the error message, or `unsupported` because this platform does not run it.
+ */
+export type Candidate =
+  | ({ kind: 'ready' } & Installed)
+  | { kind: 'failed'; stage: 'build' | 'install'; message: string }
+  | { kind: 'unsupported' };
+
+const SHARED_GENERATED: ReadonlySet<string> = new Set(['docs/catalog.md', 'docs/llms.txt']);
+const SHARED_DOCS_PREFIX = 'docs/shared/';
+const UNDOCUMENTED_PREFIX = 'undocumented: ';
+
+function concerns(entry: string, name: string): boolean {
+  return (
+    entry.startsWith(`tools/${name}/`) ||
+    SHARED_GENERATED.has(entry) ||
+    entry.startsWith(SHARED_DOCS_PREFIX) ||
+    entry.startsWith(UNDOCUMENTED_PREFIX)
+  );
+}
+
 /** Bytes typed into the interactive run: one Ctrl-D, so a prompt reads end of input. */
 const INTERACTIVE_INPUT = '\u0004';
 const MS_PER_SECOND = 1000;
@@ -65,24 +87,26 @@ async function interfaceFailure(m: ToolManifest, installed: Installed): Promise<
 }
 
 /**
- * Drift: the tool's generated files (`tools/<name>/...` entries of `checkDrift`) must match
- * `tbx gen`, and the installed tool's `--help --json` must deep-equal `usageOf(m)`. `installed`
- * is the candidate, a string saying why it could not be built or installed (a failure, since
- * the interface cannot be checked), or `null` when this platform does not run the tool.
+ * Drift: every `checkDrift` entry for this tool (`tools/<name>/...`) or for the shared generated
+ * outputs (`docs/catalog.md`, `docs/llms.txt`, `docs/shared/...` and undocumented shared
+ * symbols) fails the step; entries under other tools' directories do not. A `ready` candidate's
+ * `--help --json` must also deep-equal `usageOf(m)`; a `failed` one fails the step, since the
+ * interface cannot be checked; an `unsupported` one skips the interface check.
  */
 export async function driftStep(
   root: string,
   m: ToolManifest,
-  installed: Installed | string | null,
+  candidate: Candidate,
 ): Promise<StepOutcome> {
-  const prefix = `tools/${m.name}/`;
   const report = await checkDrift(root);
-  const drifted = report.filter((file) => file.startsWith(prefix));
+  const drifted = report.filter((entry) => concerns(entry, m.name));
   const failures = drifted.length === 0 ? [] : [`differs from \`tbx gen\`: ${drifted.join(', ')}`];
-  if (typeof installed === 'string') {
-    failures.push(`interface check needs the built tool: ${installed}`);
-  } else if (installed !== null) {
-    const failure = await interfaceFailure(m, installed);
+  if (candidate.kind === 'failed') {
+    failures.push(
+      `interface check needs the built tool: ${candidate.stage} failed: ${candidate.message}`,
+    );
+  } else if (candidate.kind === 'ready') {
+    const failure = await interfaceFailure(m, candidate);
     if (failure !== null) failures.push(failure);
   }
   return outcomeOf(failures);
@@ -167,6 +191,21 @@ async function interactiveFailure(
   }
 }
 
+async function suiteFailures(
+  root: string,
+  m: ToolManifest,
+  suite: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<string[]> {
+  let command: Awaited<ReturnType<typeof testCommand>>;
+  try {
+    command = await testCommand(root, m.language, suite, env);
+  } catch (error) {
+    return [`cannot run the e2e suite: ${messageOf(error)}`];
+  }
+  return runChecks(root, [command]);
+}
+
 /**
  * End to end against the installed binary in the isolated environment: a non-interactive run
  * (`<required placeholders> -y --json` on a non-TTY stdin) must exit before `deadlineMs` with
@@ -199,8 +238,7 @@ export async function endToEndStep(
       'TBX_TOOL_BIN',
       installed.link,
     );
-    const command = await testCommand(root, m.language, suite, suiteEnv);
-    failures.push(...(await runChecks(root, [command])));
+    failures.push(...(await suiteFailures(root, m, suite, suiteEnv)));
   }
   return outcomeOf(failures);
 }

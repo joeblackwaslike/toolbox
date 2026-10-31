@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CommandError, runBounded, runOpen, signalGroup } from '../../shared/ts/src/run.ts';
+import {
+  CommandError,
+  MAX_CAPTURE_BYTES,
+  runBounded,
+  runOpen,
+  signalGroup,
+} from '../../shared/ts/src/run.ts';
 
 const SHORT_LIMIT_MS = 200;
 const QUICK_MS = 5000;
@@ -26,6 +32,32 @@ describe('runOpen', () => {
   it('closes stdin when asked, so a command reading it sees EOF', async () => {
     const closed = await runOpen('cat', [], { closeStdin: true, timeoutMs: QUICK_MS });
     expect(closed).toMatchObject({ status: 0, timedOut: false });
+  });
+
+  it('decodes a multibyte character split across two chunks', async () => {
+    const split = await runOpen(
+      'sh',
+      ['-c', String.raw`printf '\342'; sleep 0.2; printf '\202\254\n'`],
+      {
+        closeStdin: true,
+        timeoutMs: QUICK_MS,
+      },
+    );
+    expect(split.stdout).toBe('€\n');
+  });
+
+  it('truncates output over the capture cap, marks it and kills the command', async () => {
+    const result = await runOpen('sh', ['-c', 'while :; do echo aaaaaaaaaaaaaaaa; done'], {
+      closeStdin: true,
+      timeoutMs: QUICK_MS,
+      maxCaptureBytes: 1000,
+    });
+    expect(result).toMatchObject({ truncated: true, timedOut: false });
+    expect(result.stdout.length).toBe(1000);
+  });
+
+  it('keeps the default cap at 8 MiB', () => {
+    expect(MAX_CAPTURE_BYTES).toBe(8 * 1024 * 1024);
   });
 });
 

@@ -20,7 +20,7 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/output](ts/output.md) (createOutput, Output, OutputStreams, PROCESS_STREAMS)
 - [ts/paths](ts/paths.md) (binariesOnPath, EXECUTABLE_MODE, findOnPath, isWithin, PathBinary, PathEnv, PRIVATE_DIR_MODE, READABLE_MODE, tbxBinDir, xdgBaseDir)
 - [ts/pty](ts/pty.md) (PtyOptions, PtyResult, runInPty)
-- [ts/run](ts/run.md) (CommandError, runBounded, runOpen, RunOptions, RunResult, signalGroup)
+- [ts/run](ts/run.md) (CapturedOutput, captureOutput, CommandError, MAX_CAPTURE_BYTES, runBounded, runOpen, RunOptions, RunResult, signalGroup)
 
 ## py
 

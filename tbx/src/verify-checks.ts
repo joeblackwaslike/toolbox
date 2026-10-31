@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { messageOf } from '../../shared/ts/src/errors.ts';
+import { isErrnoException, messageOf } from '../../shared/ts/src/errors.ts';
 import { compareText } from '../../shared/ts/src/gen/files.ts';
 import { findOnPath } from '../../shared/ts/src/paths.ts';
 import { runBounded, runOpen } from '../../shared/ts/src/run.ts';
@@ -30,6 +30,7 @@ const TEST_FILES: Record<Lang, RegExp> = {
 };
 const SHELL_FILES = /\.(sh|bash)$/;
 const CACHE_LOOKUP_TIMEOUT_MS = 30_000;
+const CREDENTIAL_NAME = /TOKEN|KEY|SECRET|PASSWORD|AUTH/i;
 const HOME_VARIABLES = [
   'HOME',
   'XDG_CONFIG_HOME',
@@ -208,11 +209,28 @@ export async function testCommand(
 }
 
 async function venvPython(root: string): Promise<string> {
-  const result = await runOpen('uv', ['run', 'python', '-c', 'import sys; print(sys.executable)'], {
-    cwd: root,
-    timeoutMs: CHECK_TIMEOUT_MS,
-  });
-  return result.stdout.trim() || 'python3';
+  const line = 'uv run python -c "import sys; print(sys.executable)"';
+  let result: Awaited<ReturnType<typeof runOpen>>;
+  try {
+    result = await runOpen('uv', ['run', 'python', '-c', 'import sys; print(sys.executable)'], {
+      cwd: root,
+      timeoutMs: CHECK_TIMEOUT_MS,
+      closeStdin: true,
+    });
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') {
+      throw new Error('uv not found on PATH; Python e2e suites run through the uv virtualenv', {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+  const python = result.stdout.trim();
+  if (result.status !== 0 || python === '') {
+    const why = result.timedOut ? 'timed out' : `exit ${String(result.status)}`;
+    throw new Error(`${line} failed (${why}): ${tail(result.stderr)}`);
+  }
+  return python;
 }
 
 async function hostOutput(command: string, args: string[]): Promise<string> {
@@ -226,14 +244,17 @@ async function hostOutput(command: string, args: string[]): Promise<string> {
 
 /**
  * The environment unit tests run in: the host environment (the runners need its PATH and
- * toolchains) with `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`,
+ * toolchains) without any variable whose name contains `TOKEN`, `KEY`, `SECRET`, `PASSWORD` or
+ * `AUTH` (any case), with `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`,
  * `XDG_CACHE_HOME` and `TBX_BIN_DIR` taken from `isolated`, so tool code under test never sees
  * the real home. `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR` and `BUN_INSTALL_CACHE_DIR` are
  * resolved from the host first (its own value, else `uv cache dir`, `uv python dir`,
  * `bun pm cache`) so uv and bun keep using their caches under the new HOME.
  */
 export async function unitTestEnv(isolated: Env): Promise<NodeJS.ProcessEnv> {
-  let env: Env = { ...process.env };
+  let env: Env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !CREDENTIAL_NAME.test(name)),
+  );
   for (const [name, command, args] of CACHE_LOOKUPS) {
     const value = process.env[name] ?? (await hostOutput(command, args));
     if (value !== '') env = withVariable(env, name, value);

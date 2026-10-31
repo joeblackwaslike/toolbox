@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { findOnPath } from './paths.ts';
-import { signalGroup } from './run.ts';
+import { MAX_CAPTURE_BYTES, captureOutput, signalGroup } from './run.ts';
 
 /** Options for `runInPty`. */
 export interface PtyOptions {
@@ -12,6 +12,8 @@ export interface PtyOptions {
   deadlineMs: number;
   /** Working directory; defaults to the current one. */
   cwd?: string;
+  /** Cap on the bytes of terminal output kept; defaults to `MAX_CAPTURE_BYTES`. */
+  maxCaptureBytes?: number;
 }
 
 /** Outcome of `runInPty`. */
@@ -28,6 +30,8 @@ export interface PtyResult {
    * and `output` then holds the driver's own error.
    */
   started: boolean;
+  /** True when the output passed the capture cap and the rest was dropped. */
+  truncated: boolean;
 }
 
 const KILL_GRACE_SECONDS = 0.5;
@@ -97,7 +101,8 @@ sys.exit(128 - code if code < 0 else code)
  * gets SIGHUP and then, after a short grace, SIGKILL, and the call resolves with
  * `timedOut: true`. A command that waits for more input than `input` holds therefore times out
  * instead of hanging. Input left unread when the driver exits is dropped, and the exit code
- * reports what happened. A command that cannot be executed exits 127 with `started: true`; a
+ * reports what happened. Output past `maxCaptureBytes` is dropped and `truncated` is set; the
+ * session still runs to its exit or the deadline. A command that cannot be executed exits 127 with `started: true`; a
  * driver that fails before the terminal exists gives `started: false`.
  *
  * @throws {Error} when `python3` is not on `env.PATH` or cannot be started.
@@ -112,8 +117,10 @@ export async function runInPty(argv: readonly string[], options: PtyOptions): Pr
       detached: true,
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
-    let output = '';
-    let driverErrors = '';
+    const limit = options.maxCaptureBytes ?? MAX_CAPTURE_BYTES;
+    const keepReading = (): void => undefined;
+    const terminal = captureOutput([child.stdout], limit, keepReading);
+    const driver = captureOutput([child.stderr], limit, keepReading);
     let timedOut = false;
     let backstop: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
@@ -123,12 +130,6 @@ export async function runInPty(argv: readonly string[], options: PtyOptions): Pr
         signalGroup(child.pid, 'SIGKILL');
       }, BACKSTOP_MS);
     }, options.deadlineMs);
-    child.stdout.on('data', (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      driverErrors += chunk.toString();
-    });
     child.on('error', (error) => {
       clearTimeout(timer);
       clearTimeout(backstop);
@@ -137,10 +138,17 @@ export async function runInPty(argv: readonly string[], options: PtyOptions): Pr
     child.on('close', (code) => {
       clearTimeout(timer);
       clearTimeout(backstop);
-      const lines = driverErrors.split('\n');
+      const [output = ''] = terminal.texts;
+      const lines = (driver.texts[0] ?? '').split('\n');
       const started = lines.includes(STARTED);
       const errors = lines.filter((line) => line !== STARTED).join('\n');
-      resolve({ output: output + errors, code: timedOut ? null : code, timedOut, started });
+      resolve({
+        output: output + errors,
+        code: timedOut ? null : code,
+        timedOut,
+        started,
+        truncated: terminal.truncated || driver.truncated,
+      });
     });
     child.stdin.on('error', (error: NodeJS.ErrnoException) => {
       if (error.code !== 'EPIPE') reject(error);

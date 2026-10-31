@@ -31,7 +31,8 @@ which behaves the same under Node and Bun. At `deadlineMs` the command's whole p
 gets SIGHUP and then, after a short grace, SIGKILL, and the call resolves with
 `timedOut: true`. A command that waits for more input than `input` holds therefore times out
 instead of hanging. Input left unread when the driver exits is dropped, and the exit code
-reports what happened. A command that cannot be executed exits 127 with `started: true`; a
+reports what happened. Output past `maxCaptureBytes` is dropped and `truncated` is set; the
+session still runs to its exit or the deadline. A command that cannot be executed exits 127 with `started: true`; a
 driver that fails before the terminal exists gives `started: false`.
 
 - @throws {Error} when `python3` is not on `env.PATH` or cannot be started.
