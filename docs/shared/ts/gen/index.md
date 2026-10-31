@@ -29,9 +29,11 @@ async function loadToolManifests(root: string): Promise<ToolManifest[]>
 ```
 
 Loads every `tools/<name>/tool.toml` under `root`, sorted by directory name. A directory
-without a `tool.toml` is skipped; a missing `tools/` gives `[]`.
+without a `tool.toml` and a plain file under `tools/` are skipped; a missing `tools/` gives
+`[]`.
 
-- @throws {ManifestError} when a `tool.toml` exists but is invalid.
+- @throws {ManifestError} when a `tool.toml` cannot be read for any reason other than not
+existing, is invalid, or names a tool other than its directory.
 
 ## syncGenerated
 
@@ -40,9 +42,11 @@ async function syncGenerated(root: string): Promise<string[]>
 ```
 
 Writes `generateAll(root)` and deletes stale generated files: anything under
-`tools/<name>/README.md`, `tools/<name>/completions/`, `docs/shared/`, `docs/catalog.md` or
-`docs/llms.txt` that is no longer generated. Files outside those roots are never touched.
-Returns the deleted paths.
+`tools/<name>/completions/` of a tool with a valid `tool.toml`, under `docs/shared/`, or
+`docs/catalog.md` and `docs/llms.txt`, that is no longer generated. A `tools/<dir>/` without
+a `tool.toml` and files outside those roots are never touched. Returns the deleted paths.
+
+- @throws {ManifestError} before writing anything when a manifest is unreadable or invalid.
 
 ## undocumentedSymbols
 

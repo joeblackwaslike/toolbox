@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError, Option } from 'commander';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
-import { ManifestError } from '../../shared/ts/src/manifest.ts';
+import { ManifestError, RESERVED_COMMANDS } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
 import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
 import { build } from './commands/build.ts';
@@ -202,14 +202,10 @@ function exitCodeOf(error: unknown, streams: OutputStreams): number {
 
 const SIGNAL_EXIT_BASE = 128;
 
-async function installedLink(
-  program: Command,
-  argv: readonly string[],
-  env: TbxEnv,
-): Promise<string | null> {
+async function installedLink(argv: readonly string[], env: TbxEnv): Promise<string | null> {
   const [first] = argv;
   if (first === undefined || first.startsWith('-')) return null;
-  if (program.commands.some((command) => command.name() === first)) return null;
+  if (RESERVED_COMMANDS.has(first)) return null;
   const variables = env.vars ?? process.env;
   const paths = tbxPaths(homeOf(variables), variables);
   const state = await readState(paths);
@@ -235,7 +231,7 @@ async function execute(
 ): Promise<number> {
   try {
     const program = buildProgram(env, streams);
-    const link = await installedLink(program, argv, env);
+    const link = await installedLink(argv, env);
     if (link !== null) return dispatch(link, argv.slice(1), streams);
     await program.parseAsync(argv, { from: 'user' });
     return ExitCode.ok;

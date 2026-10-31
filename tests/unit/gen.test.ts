@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import {
   type GeneratedFile,
   checkDrift,
   generateAll,
+  loadToolManifests,
   syncGenerated,
   writeGenerated,
 } from '../../shared/ts/src/gen/index.ts';
@@ -18,7 +19,7 @@ import {
   missingSharedDocs,
   renderSharedDocs,
 } from '../../shared/ts/src/gen/shared-docs.ts';
-import { loadManifest } from '../../shared/ts/src/manifest.ts';
+import { ManifestError, loadManifest, parseManifest } from '../../shared/ts/src/manifest.ts';
 
 const FIXTURES = join(import.meta.dirname, '../fixtures');
 const DEMO = join(FIXTURES, 'tools/demo/tool.toml');
@@ -187,22 +188,104 @@ describe('stale generated files', () => {
   it('reports a stale tool README, completion and shared page, and gen removes them', async () => {
     const root = await tempRoot();
     await syncGenerated(root);
-    await put(root, 'tools/gone/README.md', 'old\n');
-    await put(root, 'tools/gone/completions/gone.zsh', 'old\n');
+    await put(root, 'tools/demo/completions/demo.old', 'old\n');
     await put(root, 'docs/shared/ts/removed.md', 'old\n');
     await put(root, 'tools/demo/docs/notes.md', 'hand written\n');
     expect([...(await checkDrift(root))].sort()).toEqual([
       'docs/shared/ts/removed.md',
-      'tools/gone/README.md',
-      'tools/gone/completions/gone.zsh',
+      'tools/demo/completions/demo.old',
     ]);
     await syncGenerated(root);
     expect(await checkDrift(root)).toEqual([]);
-    await expect(readFile(join(root, 'tools/gone/README.md'))).rejects.toThrow();
+    await expect(readFile(join(root, 'tools/demo/completions/demo.old'))).rejects.toThrow();
     await expect(readFile(join(root, 'docs/shared/ts/removed.md'))).rejects.toThrow();
     expect(await readFile(join(root, 'tools/demo/docs/guide.md'), 'utf8')).toContain('Demo guide');
     expect(await readFile(join(root, 'tools/demo/docs/notes.md'), 'utf8')).toBe('hand written\n');
   });
+
+  it('never deletes files in a tools directory that has no tool.toml', async () => {
+    const root = await tempRoot();
+    await put(root, 'tools/wip/README.md', 'hand written\n');
+    await put(root, 'tools/wip/completions/wip.zsh', 'hand written\n');
+    expect(await checkDrift(root)).not.toContain('tools/wip/README.md');
+    await syncGenerated(root);
+    expect(await readFile(join(root, 'tools/wip/README.md'), 'utf8')).toBe('hand written\n');
+    expect(await readFile(join(root, 'tools/wip/completions/wip.zsh'), 'utf8')).toBe(
+      'hand written\n',
+    );
+  });
+});
+
+describe('loadToolManifests', () => {
+  it('rejects a manifest whose name differs from its directory and writes nothing', async () => {
+    const root = await tempRoot();
+    const demo = await readFile(join(root, 'tools/demo/tool.toml'), 'utf8');
+    await put(root, 'tools/foo/tool.toml', demo);
+    await expect(loadToolManifests(root)).rejects.toThrow(/tools\/foo.*"demo".*directory/);
+    await expect(syncGenerated(root)).rejects.toBeInstanceOf(ManifestError);
+    await expect(readFile(join(root, 'tools/foo/README.md'))).rejects.toThrow();
+  });
+
+  it('rejects a symlinked tools directory that points at another tool', async () => {
+    const root = await tempRoot();
+    await symlink(join(root, 'tools/demo'), join(root, 'tools/copy'));
+    await expect(loadToolManifests(root)).rejects.toBeInstanceOf(ManifestError);
+  });
+
+  it('skips a directory without tool.toml and a plain file under tools/', async () => {
+    const root = await tempRoot();
+    await put(root, 'tools/wip/README.md', 'x\n');
+    await put(root, 'tools/.DS_Store', 'x');
+    expect((await loadToolManifests(root)).map((m) => m.name)).toEqual(['demo']);
+  });
+
+  it('propagates a tool.toml that is a directory (EISDIR)', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'tools/broken/tool.toml'), { recursive: true });
+    await expect(loadToolManifests(root)).rejects.toMatchObject({ code: 'EISDIR' });
+  });
+
+  it.skipIf(process.getuid?.() === 0)('propagates an unreadable tool.toml (EACCES)', async () => {
+    const root = await tempRoot();
+    await chmod(join(root, 'tools/demo/tool.toml'), 0o000);
+    try {
+      await expect(loadToolManifests(root)).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await chmod(join(root, 'tools/demo/tool.toml'), 0o644);
+    }
+  });
+});
+
+describe('fish completion escaping', () => {
+  const hostile = String.raw`x\'; echo INJECTED; #`;
+  const toml = [
+    'name = "esc"',
+    'summary = "Escaping test"',
+    'language = "sh"',
+    'version = "1.0.0"',
+    'platforms = ["macos", "linux"]',
+    '[[options]]',
+    'long = "opt"',
+    `summary = ${JSON.stringify(hostile)}`,
+    'type = "bool"',
+  ].join('\n');
+
+  it('escapes backslashes before quotes, byte for byte', () => {
+    const fish = renderCompletions(parseManifest(toml), 'fish');
+    expect(fish).toContain(String.raw`complete -c esc -l opt -d 'x\\\'; echo INJECTED; #'`);
+  });
+
+  it.skipIf(spawnSync('fish', ['--version']).status !== 0)(
+    'does not run text from a summary when fish sources the file',
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'tbx-fish-'));
+      const file = join(dir, 'esc.fish');
+      await writeFile(file, renderCompletions(parseManifest(toml), 'fish'));
+      const result = spawnSync('fish', ['--no-config', file], { encoding: 'utf8' });
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain('INJECTED');
+    },
+  );
 });
 
 describe('guide link', () => {

@@ -16,7 +16,7 @@
 - [py/cli](docs/shared/py/cli.md): ToolContext, build_command, define_tool, load_manifest, run_tool, usage_of
 - [ts/cli](docs/shared/ts/cli.md): defineTool, OptionValue, runTool, ToolContext, ToolRun, ToolUsage, usageOf, UsageOption
 - [py/errors](docs/shared/py/errors.md): ExitCode, ToolError
-- [ts/errors](docs/shared/ts/errors.md): ExitCode, ToolError
+- [ts/errors](docs/shared/ts/errors.md): ExitCode, isErrnoException, messageOf, ToolError
 - [ts/gen-parser](docs/shared/ts/gen-parser.md): generateShellParser
 - [ts/gen/completions](docs/shared/ts/gen/completions.md): CompletionShell, renderCompletions
 - [ts/gen/contract](docs/shared/ts/gen/contract.md): CONTRACT_PLACEHOLDER, ContractCase, generateContractTests
@@ -26,7 +26,7 @@
 - [ts/gen/shared-docs](docs/shared/ts/gen/shared-docs.md): DOC_EXTRACT_TIMEOUT_MS, extractSharedDocs, missingSharedDocs, renderSharedDocs, SharedModuleDoc, SharedSymbol
 - [ts/gen/unit](docs/shared/ts/gen/unit.md): renderSystemdTimer, renderUnit, UnitContext, UnitKind, unitLabel, UnitValidation, validateUnit, VALIDATOR_TIMEOUT_MS
 - [sh/lib](docs/shared/sh/lib.md): tbx_die, tbx_error, tbx_info, tbx_result, tbx_result_json
-- [ts/manifest](docs/shared/ts/manifest.md): ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, ToolManifest, UnitSpec
+- [ts/manifest](docs/shared/ts/manifest.md): ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec
 - [py/output](docs/shared/py/output.md): Output
 - [ts/output](docs/shared/ts/output.md): createOutput, Output, OutputStreams, PROCESS_STREAMS
 - [ts/paths](docs/shared/ts/paths.md): binariesOnPath, findOnPath, PathBinary, tbxBinDir

@@ -11,6 +11,22 @@ const ExitCode
 Stable process exit codes shared by every tbx tool. `usage` and `unavailable` and `config`
 follow the sysexits convention (2, 69, 78).
 
+## isErrnoException
+
+```ts
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException
+```
+
+True when `error` is a Node system error with a string errno `code` such as `ENOENT`.
+
+## messageOf
+
+```ts
+function messageOf(error: unknown): string
+```
+
+The message of an `Error`, or `String(error)` for anything else that was thrown.
+
 ## ToolError
 
 ```ts
@@ -18,4 +34,4 @@ class ToolError extends Error
 ```
 
 Error a tool throws to end the run with a specific exit code. `code` defaults to
-`ExitCode.failure`.
+`ExitCode.failure`; `cause` keeps the underlying error.

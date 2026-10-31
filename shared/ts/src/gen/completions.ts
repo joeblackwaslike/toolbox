@@ -53,7 +53,7 @@ function fish(m: ToolManifest, options: UsageOption[]): string {
     options.map((option) => {
       const short = option.short === null ? '' : ` -s ${option.short}`;
       const value = option.type === 'bool' ? '' : ' -r';
-      const summary = option.summary.replaceAll("'", String.raw`\'`);
+      const summary = option.summary.replaceAll('\\', '\\\\').replaceAll("'", String.raw`\'`);
       return `complete -c ${name} -l ${option.long}${short}${value} -d '${summary}'`;
     }),
   );

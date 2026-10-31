@@ -4,13 +4,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ManifestError,
+  RESERVED_COMMANDS,
   assertNoCollisions,
   loadManifest,
   parseManifest,
 } from '../../shared/ts/src/manifest.ts';
 
 const VALID = `
-name = "gen"
+name = "forge"
 alias = "g"
 summary = "Generate things"
 language = "ts"
@@ -38,7 +39,7 @@ minute = 30
 `;
 
 function withName(toml: string, name: string): string {
-  return toml.replace('name = "gen"', `name = "${name}"`);
+  return toml.replace('name = "forge"', `name = "${name}"`);
 }
 
 function manifest(name: string, alias?: string): ReturnType<typeof parseManifest> {
@@ -60,7 +61,7 @@ function fieldPathOf(toml: string): string | undefined {
 describe('parseManifest', () => {
   it('parses a valid manifest', () => {
     const m = parseManifest(VALID);
-    expect(m.name).toBe('gen');
+    expect(m.name).toBe('forge');
     expect(m.alias).toBe('g');
     expect(m.platforms).toEqual(['macos', 'linux']);
     expect(m.args).toEqual([{ name: 'target', summary: 'What to generate', required: true }]);
@@ -174,11 +175,58 @@ default = true
   });
 
   it('rejects an alias equal to its own name', () => {
-    expect(() => parseManifest(VALID.replace('alias = "g"', 'alias = "gen"'))).toThrow(/alias/);
+    expect(() => parseManifest(VALID.replace('alias = "g"', 'alias = "forge"'))).toThrow(/alias/);
   });
 
   it('wraps TOML syntax errors in ManifestError', () => {
     expect(() => parseManifest('name = ')).toThrow(ManifestError);
+  });
+
+  it.each([...RESERVED_COMMANDS])('rejects the tbx subcommand %s as a name or an alias', (word) => {
+    expect(fieldPathOf(withName(VALID, word))).toBe('name');
+    expect(fieldPathOf(VALID.replace('alias = "g"', `alias = "${word}"`))).toBe('alias');
+  });
+
+  it('rejects two options with the same long name', () => {
+    const toml = `${VALID}\n[[options]]\nlong = "force"\nsummary = "Again"\ntype = "bool"\n`;
+    expect(() => parseManifest(toml)).toThrow(/options\.1\.long.*duplicate/);
+  });
+
+  it('rejects two options with the same short name', () => {
+    const toml = `${VALID}\n[[options]]\nlong = "fast"\nshort = "f"\nsummary = "Fast"\ntype = "bool"\n`;
+    expect(() => parseManifest(toml)).toThrow(/options\.1\.short.*duplicate/);
+  });
+
+  it('rejects two arguments with the same name', () => {
+    const toml = VALID.replace(
+      '[[options]]',
+      '[[args]]\nname = "target"\nsummary = "Again"\nrequired = false\n\n[[options]]',
+    );
+    expect(() => parseManifest(toml)).toThrow(/args\.1\.name.*duplicate/);
+  });
+
+  it('rejects an argument and an option with the same name', () => {
+    const toml = VALID.replace('name = "target"', 'name = "force"');
+    expect(() => parseManifest(toml)).toThrow(/duplicate/);
+  });
+
+  it.each([
+    ['an argument summary', 'summary = "What to generate"', 'summary = "What\\nto generate"'],
+    ['an option summary', 'summary = "Overwrite"', 'summary = "Over\\u001bwrite"'],
+    ['the tool summary', 'summary = "Generate things"', 'summary = "Generate\\tthings"'],
+  ])('rejects a control character in %s', (_label, from, to) => {
+    expect(() => parseManifest(VALID.replace(from, to))).toThrow(/control character/);
+  });
+
+  it('rejects an argument or option summary over 200 characters', () => {
+    const long = 'x'.repeat(201);
+    expect(() => parseManifest(VALID.replace('"What to generate"', `"${long}"`))).toThrow(
+      ManifestError,
+    );
+    expect(() => parseManifest(VALID.replace('"Overwrite"', `"${long}"`))).toThrow(ManifestError);
+    expect(
+      parseManifest(VALID.replace('"Overwrite"', `"${'x'.repeat(200)}"`)).options,
+    ).toHaveLength(1);
   });
 });
 
@@ -187,43 +235,54 @@ describe('loadManifest', () => {
     const dir = await mkdtemp(join(tmpdir(), 'tbx-manifest-'));
     const good = join(dir, 'tool.toml');
     await writeFile(good, VALID);
-    expect((await loadManifest(good)).name).toBe('gen');
+    expect((await loadManifest(good)).name).toBe('forge');
 
     const bad = join(dir, 'bad.toml');
     await writeFile(bad, 'name = "X"');
     await expect(loadManifest(bad)).rejects.toThrow(bad);
     await expect(loadManifest(join(dir, 'missing.toml'))).rejects.toThrow(ManifestError);
   });
+
+  it('keeps the read error as the cause and exposes its errno code', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tbx-manifest-'));
+    const error = await loadManifest(join(dir, 'missing.toml')).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ManifestError);
+    expect((error as ManifestError).code).toBe('ENOENT');
+    expect((error as ManifestError).cause).toBeInstanceOf(Error);
+    await writeFile(join(dir, 'bad.toml'), 'name = "X"');
+    const invalid = await loadManifest(join(dir, 'bad.toml')).catch((caught: unknown) => caught);
+    expect((invalid as ManifestError).code).toBeUndefined();
+  });
 });
 
 describe('assertNoCollisions', () => {
   it('passes for distinct names and aliases', () => {
     expect(() => {
-      assertNoCollisions([manifest('gen', 'g'), manifest('new', 'n')], ['ls']);
+      assertNoCollisions([manifest('forge', 'g'), manifest('mint', 'n')], ['ls']);
     }).not.toThrow();
   });
 
   it("throws when an alias equals another tool's name", () => {
     expect(() => {
-      assertNoCollisions([manifest('gen', 'new'), manifest('new')], []);
-    }).toThrow(/gen.*new|new.*gen/);
+      assertNoCollisions([manifest('forge', 'mint'), manifest('mint')], []);
+    }).toThrow(/forge.*mint|mint.*forge/);
   });
 
   it('throws when two aliases are equal', () => {
     expect(() => {
-      assertNoCollisions([manifest('gen', 'x'), manifest('new', 'x')], []);
+      assertNoCollisions([manifest('forge', 'x'), manifest('mint', 'x')], []);
     }).toThrow(ManifestError);
   });
 
   it('throws when a name equals a binary already on PATH', () => {
     expect(() => {
-      assertNoCollisions([manifest('gen')], ['gen']);
+      assertNoCollisions([manifest('forge')], ['forge']);
     }).toThrow(/PATH binary/);
   });
 
   it('throws when an alias equals a binary already on PATH', () => {
     expect(() => {
-      assertNoCollisions([manifest('gen', 'ls')], ['ls']);
+      assertNoCollisions([manifest('forge', 'ls')], ['ls']);
     }).toThrow(/PATH binary/);
   });
 });

@@ -1,6 +1,7 @@
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { loadManifest } from '../manifest.ts';
+import { isErrnoException } from '../errors.ts';
+import { ManifestError, loadManifest } from '../manifest.ts';
 import type { ToolManifest } from '../manifest.ts';
 import { renderCompletions } from './completions.ts';
 import { type GeneratedFile, compareText } from './files.ts';
@@ -17,26 +18,55 @@ const UNDOCUMENTED_PREFIX = 'undocumented: ';
 
 export type { GeneratedFile } from './files.ts';
 
+async function isDirectory(target: string): Promise<boolean> {
+  try {
+    const stats = await stat(target);
+    return stats.isDirectory();
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function loadToolManifest(root: string, entry: string): Promise<ToolManifest | null> {
+  const file = path.join(root, 'tools', entry, 'tool.toml');
+  let manifest: ToolManifest;
+  try {
+    manifest = await loadManifest(file);
+  } catch (error) {
+    if (error instanceof ManifestError && error.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (manifest.name !== entry) {
+    throw new ManifestError(
+      `${file}: name "${manifest.name}" must match its directory "${entry}"`,
+      'name',
+    );
+  }
+  return manifest;
+}
+
 /**
  * Loads every `tools/<name>/tool.toml` under `root`, sorted by directory name. A directory
- * without a `tool.toml` is skipped; a missing `tools/` gives `[]`.
+ * without a `tool.toml` and a plain file under `tools/` are skipped; a missing `tools/` gives
+ * `[]`.
  *
- * @throws {ManifestError} when a `tool.toml` exists but is invalid.
+ * @throws {ManifestError} when a `tool.toml` cannot be read for any reason other than not
+ * existing, is invalid, or names a tool other than its directory.
  */
 export async function loadToolManifests(root: string): Promise<ToolManifest[]> {
   let entries: string[];
   try {
     entries = await readdir(path.join(root, 'tools'));
-  } catch {
-    return [];
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return [];
+    throw error;
   }
   const manifests: ToolManifest[] = [];
   for (const entry of [...entries].sort(compareText)) {
-    try {
-      manifests.push(await loadManifest(path.join(root, 'tools', entry, 'tool.toml')));
-    } catch (error) {
-      if (!(error instanceof Error && error.message.includes('cannot read file'))) throw error;
-    }
+    if (!(await isDirectory(path.join(root, 'tools', entry)))) continue;
+    const manifest = await loadToolManifest(root, entry);
+    if (manifest !== null) manifests.push(manifest);
   }
   return manifests;
 }
@@ -73,11 +103,14 @@ function renderLlms(ms: ToolManifest[], mods: SharedModuleDoc[]): string {
  * Output is deterministic and sorted by path.
  */
 export async function generateAll(root: string): Promise<GeneratedFile[]> {
-  return buildFiles(root, await extractSharedDocs(root));
+  return buildFiles(root, await loadToolManifests(root), await extractSharedDocs(root));
 }
 
-async function buildFiles(root: string, mods: SharedModuleDoc[]): Promise<GeneratedFile[]> {
-  const manifests = await loadToolManifests(root);
+async function buildFiles(
+  root: string,
+  manifests: ToolManifest[],
+  mods: SharedModuleDoc[],
+): Promise<GeneratedFile[]> {
   const guides = new Set<string>();
   for (const m of manifests) {
     if ((await readIfPresent(path.join(root, 'tools', m.name, 'docs/guide.md'))) !== null) {
@@ -116,26 +149,19 @@ async function filesBelow(dir: string): Promise<string[]> {
     return entries
       .filter((entry) => entry.isFile())
       .map((entry) => path.join(entry.parentPath, entry.name));
-  } catch {
-    return [];
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return [];
+    throw error;
   }
 }
 
-async function toolDirectories(root: string): Promise<string[]> {
-  try {
-    return await readdir(path.join(root, 'tools'));
-  } catch {
-    return [];
-  }
-}
-
-async function existingGenerated(root: string): Promise<string[]> {
+async function existingGenerated(root: string, manifests: ToolManifest[]): Promise<string[]> {
   const found = [path.join(root, 'docs/catalog.md'), path.join(root, 'docs/llms.txt')];
   found.push(...(await filesBelow(path.join(root, 'docs/shared'))));
-  for (const tool of await toolDirectories(root)) {
+  for (const { name } of manifests) {
     found.push(
-      path.join(root, 'tools', tool, 'README.md'),
-      ...(await filesBelow(path.join(root, 'tools', tool, 'completions'))),
+      path.join(root, 'tools', name, 'README.md'),
+      ...(await filesBelow(path.join(root, 'tools', name, 'completions'))),
     );
   }
   const present: string[] = [];
@@ -145,22 +171,29 @@ async function existingGenerated(root: string): Promise<string[]> {
   return present;
 }
 
-async function staleFiles(root: string, files: GeneratedFile[]): Promise<string[]> {
+async function staleFiles(
+  root: string,
+  manifests: ToolManifest[],
+  files: GeneratedFile[],
+): Promise<string[]> {
   const generated = new Set(files.map((file) => file.path));
-  const existing = await existingGenerated(root);
+  const existing = await existingGenerated(root, manifests);
   return existing.filter((file) => !generated.has(file)).sort(compareText);
 }
 
 /**
  * Writes `generateAll(root)` and deletes stale generated files: anything under
- * `tools/<name>/README.md`, `tools/<name>/completions/`, `docs/shared/`, `docs/catalog.md` or
- * `docs/llms.txt` that is no longer generated. Files outside those roots are never touched.
- * Returns the deleted paths.
+ * `tools/<name>/completions/` of a tool with a valid `tool.toml`, under `docs/shared/`, or
+ * `docs/catalog.md` and `docs/llms.txt`, that is no longer generated. A `tools/<dir>/` without
+ * a `tool.toml` and files outside those roots are never touched. Returns the deleted paths.
+ *
+ * @throws {ManifestError} before writing anything when a manifest is unreadable or invalid.
  */
 export async function syncGenerated(root: string): Promise<string[]> {
-  const files = await generateAll(root);
+  const manifests = await loadToolManifests(root);
+  const files = await buildFiles(root, manifests, await extractSharedDocs(root));
   await writeGenerated(root, files);
-  const stale = await staleFiles(root, files);
+  const stale = await staleFiles(root, manifests, files);
   for (const file of stale) await rm(path.join(root, file));
   return stale;
 }
@@ -188,11 +221,12 @@ async function readIfPresent(file: string): Promise<string | null> {
  * symbol with no doc comment. An empty result means nothing has drifted.
  */
 export async function checkDrift(root: string): Promise<string[]> {
+  const manifests = await loadToolManifests(root);
   const mods = await extractSharedDocs(root);
-  const files = await buildFiles(root, mods);
+  const files = await buildFiles(root, manifests, mods);
   const drifted: string[] = [];
   for (const file of files) {
     if ((await readIfPresent(path.join(root, file.path))) !== file.content) drifted.push(file.path);
   }
-  return [...drifted, ...(await staleFiles(root, files)), ...undocumentedOf(mods)];
+  return [...drifted, ...(await staleFiles(root, manifests, files)), ...undocumentedOf(mods)];
 }

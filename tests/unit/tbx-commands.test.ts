@@ -5,7 +5,7 @@ import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
 import { checkDrift } from '../../shared/ts/src/gen/index.ts';
-import { loadManifest } from '../../shared/ts/src/manifest.ts';
+import { RESERVED_COMMANDS, loadManifest } from '../../shared/ts/src/manifest.ts';
 import { runTbx } from '../../tbx/src/index.ts';
 import { REPO, fixtureRoot, scaffoldRoot } from '../helpers/roots.ts';
 
@@ -202,6 +202,14 @@ describe('tbx new', () => {
     expect(lang.code).toBe(2);
   });
 
+  it('new refuses a name that is a tbx subcommand', async () => {
+    const root = await fixtureRoot();
+    const result = await runTbx(['new', 'doctor', '--lang', 'sh', '-y'], { root, ...NO_PATH });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('tbx subcommand');
+    expect(await missing(join(root, 'tools/doctor'))).toBe(true);
+  });
+
   it('new --lang sh creates a manifest and a failing bats test', async () => {
     const root = await scaffoldRoot();
     const result = await runTbx(['new', 'hello', '--lang', 'sh', '-y', '--json'], {
@@ -333,6 +341,17 @@ describe('tbx flags', () => {
     const result = await runTbx(['--help'], { root: REPO, ...NO_PATH });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('list');
+  });
+
+  it('every tbx subcommand is in RESERVED_COMMANDS', async () => {
+    const result = await runTbx(['--help'], { root: REPO, ...NO_PATH });
+    const commands = result.stdout
+      .split('Commands:')[1]
+      ?.split('\n')
+      .map((line) => /^ {2}(\S+)/.exec(line)?.[1])
+      .filter((name): name is string => name !== undefined);
+    expect(commands?.length).toBeGreaterThan(5);
+    for (const command of commands ?? []) expect(RESERVED_COMMANDS).toContain(command);
   });
 });
 

@@ -68,7 +68,7 @@ class ManifestError extends Error
 
 Error thrown for any invalid or conflicting tool manifest. `fieldPath` is the dotted path
 of the failing field (for example `unit.calendar.hour`), or `(root)` when no single field
-is at fault.
+is at fault. `code` is the errno code (for example `ENOENT`) when `cause` is a system error.
 
 ## NAME_PATTERN
 
@@ -103,6 +103,15 @@ interface PathCollision
 ```
 
 A tool name or alias that matches an executable already on PATH.
+
+## RESERVED_COMMANDS
+
+```ts
+const RESERVED_COMMANDS: ReadonlySet<string>
+```
+
+The tbx subcommands. A tool name or alias cannot be one of them, because `tbx <name>`
+dispatches to an installed tool only when `<name>` is not a subcommand.
 
 ## ToolManifest
 

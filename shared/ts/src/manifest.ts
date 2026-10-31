@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
+import { isErrnoException, messageOf } from './errors.ts';
 
 /** Valid tool names and aliases: a lowercase letter, then up to 15 lowercase letters, digits or dashes. */
 export const NAME_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
@@ -14,24 +15,58 @@ const SEMVER_PATTERN = new RegExp(
     `(?:\\+${SEMVER_BUILD_ID}(?:\\.${SEMVER_BUILD_ID})*)?$`,
 );
 const MAX_SUMMARY_LENGTH = 80;
+const MAX_FIELD_SUMMARY_LENGTH = 200;
+const CONTROL_CHARACTER = /\p{Cc}/u;
 const MAX_HOUR = 23;
 const MAX_MINUTE = 59;
 const ROOT_PATH = '(root)';
 
 /**
+ * The tbx subcommands. A tool name or alias cannot be one of them, because `tbx <name>`
+ * dispatches to an installed tool only when `<name>` is not a subcommand.
+ */
+export const RESERVED_COMMANDS: ReadonlySet<string> = new Set([
+  'list',
+  'help',
+  'gen',
+  'new',
+  'shared',
+  'build',
+  'install',
+  'uninstall',
+  'verify',
+  'update',
+  'doctor',
+]);
+
+/**
  * Error thrown for any invalid or conflicting tool manifest. `fieldPath` is the dotted path
  * of the failing field (for example `unit.calendar.hour`), or `(root)` when no single field
- * is at fault.
+ * is at fault. `code` is the errno code (for example `ENOENT`) when `cause` is a system error.
  */
 export class ManifestError extends Error {
   readonly fieldPath: string;
+  readonly code: string | undefined;
 
-  constructor(message: string, fieldPath: string = ROOT_PATH) {
-    super(message);
+  constructor(message: string, fieldPath: string = ROOT_PATH, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'ManifestError';
     this.fieldPath = fieldPath;
+    this.code = isErrnoException(options?.cause) ? options.cause.code : undefined;
   }
 }
+
+const noControlCharacters = (text: string): boolean => !CONTROL_CHARACTER.test(text);
+const CONTROL_MESSAGE = 'must not contain a control character';
+
+function summarySchema(max: number): z.ZodString {
+  return z.string().min(1).max(max).refine(noControlCharacters, CONTROL_MESSAGE);
+}
+
+const toolNameSchema = z
+  .string()
+  .regex(NAME_PATTERN)
+  .refine((name) => !RESERVED_COMMANDS.has(name), 'is a tbx subcommand');
 
 /**
  * Flags the generated parsers add to every tool, in help order. A manifest option cannot
@@ -56,7 +91,7 @@ const RESERVED_SHORTS: ReadonlySet<string> = new Set(
 
 const argumentSpecSchema = z.strictObject({
   name: z.string().regex(OPTION_PATTERN),
-  summary: z.string().min(1),
+  summary: summarySchema(MAX_FIELD_SUMMARY_LENGTH),
   required: z.boolean(),
 });
 
@@ -74,7 +109,7 @@ const optSpecSchema = z
       .regex(/^[a-zA-Z0-9]$/)
       .refine((short) => !RESERVED_SHORTS.has(short), 'is a built-in flag')
       .optional(),
-    summary: z.string().min(1),
+    summary: summarySchema(MAX_FIELD_SUMMARY_LENGTH),
     type: z.enum(['bool', 'string', 'int']),
     default: z.union([z.boolean(), z.string(), z.number()]).optional(),
   })
@@ -124,9 +159,9 @@ const unitSpecSchema = z
 
 const toolManifestSchema = z
   .strictObject({
-    name: z.string().regex(NAME_PATTERN),
-    alias: z.string().regex(NAME_PATTERN).optional(),
-    summary: z.string().min(1).max(MAX_SUMMARY_LENGTH),
+    name: toolNameSchema,
+    alias: toolNameSchema.optional(),
+    summary: summarySchema(MAX_SUMMARY_LENGTH),
     language: z.enum(['ts', 'py', 'sh']),
     version: z.string().regex(SEMVER_PATTERN),
     platforms: z.array(z.enum(['macos', 'linux'])).min(1),
@@ -142,7 +177,41 @@ const toolManifestSchema = z
         message: 'alias must differ from name',
       });
     }
+    addDuplicateIssues(manifest, ctx);
   });
+
+interface ParameterSpecs {
+  args: { name: string }[];
+  options: { long: string; short?: string | undefined }[];
+}
+
+function addDuplicateIssues(manifest: ParameterSpecs, ctx: z.RefinementCtx): void {
+  const names = new Map<string, string>();
+  const shorts = new Set<string>();
+  const claim = (key: string, owner: string, path: (string | number)[]): void => {
+    const existing = names.get(key);
+    if (existing === undefined) {
+      names.set(key, owner);
+      return;
+    }
+    ctx.addIssue({ code: 'custom', path, message: `duplicate name "${key}", already ${existing}` });
+  };
+  for (const [index, arg] of manifest.args.entries()) {
+    claim(arg.name, `argument ${index}`, ['args', index, 'name']);
+  }
+  for (const [index, option] of manifest.options.entries()) {
+    claim(option.long, `option ${index}`, ['options', index, 'long']);
+    if (option.short === undefined) continue;
+    if (shorts.has(option.short)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['options', index, 'short'],
+        message: `duplicate short flag "-${option.short}"`,
+      });
+    }
+    shorts.add(option.short);
+  }
+}
 
 /** A positional argument declared in `tool.toml`. */
 export type ArgSpec = z.infer<typeof argumentSpecSchema>;
@@ -169,9 +238,7 @@ export function parseManifest(toml: string): ToolManifest {
   try {
     raw = parseToml(toml);
   } catch (error) {
-    throw new ManifestError(
-      `invalid TOML: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new ManifestError(`invalid TOML: ${messageOf(error)}`, ROOT_PATH, { cause: error });
   }
   const result = toolManifestSchema.safeParse(raw);
   if (!result.success) {
@@ -191,15 +258,15 @@ export async function loadManifest(path: string): Promise<ToolManifest> {
   try {
     text = await readFile(path, 'utf8');
   } catch (error) {
-    throw new ManifestError(
-      `${path}: cannot read file: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new ManifestError(`${path}: cannot read file: ${messageOf(error)}`, ROOT_PATH, {
+      cause: error,
+    });
   }
   try {
     return parseManifest(text);
   } catch (error) {
     if (error instanceof ManifestError) {
-      throw new ManifestError(`${path}: ${error.message}`, error.fieldPath);
+      throw new ManifestError(`${path}: ${error.message}`, error.fieldPath, { cause: error });
     }
     throw error;
   }

@@ -7,7 +7,7 @@ Every tool reuses these modules. Check here before writing a helper.
 ## ts
 
 - [ts/cli](ts/cli.md) (defineTool, OptionValue, runTool, ToolContext, ToolRun, ToolUsage, usageOf, UsageOption)
-- [ts/errors](ts/errors.md) (ExitCode, ToolError)
+- [ts/errors](ts/errors.md) (ExitCode, isErrnoException, messageOf, ToolError)
 - [ts/gen-parser](ts/gen-parser.md) (generateShellParser)
 - [ts/gen/completions](ts/gen/completions.md) (CompletionShell, renderCompletions)
 - [ts/gen/contract](ts/gen/contract.md) (CONTRACT_PLACEHOLDER, ContractCase, generateContractTests)
@@ -16,7 +16,7 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)
 - [ts/gen/shared-docs](ts/gen/shared-docs.md) (DOC_EXTRACT_TIMEOUT_MS, extractSharedDocs, missingSharedDocs, renderSharedDocs, SharedModuleDoc, SharedSymbol)
 - [ts/gen/unit](ts/gen/unit.md) (renderSystemdTimer, renderUnit, UnitContext, UnitKind, unitLabel, UnitValidation, validateUnit, VALIDATOR_TIMEOUT_MS)
-- [ts/manifest](ts/manifest.md) (ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, ToolManifest, UnitSpec)
+- [ts/manifest](ts/manifest.md) (ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec)
 - [ts/output](ts/output.md) (createOutput, Output, OutputStreams, PROCESS_STREAMS)
 - [ts/paths](ts/paths.md) (binariesOnPath, findOnPath, PathBinary, tbxBinDir)
 - [ts/pty](ts/pty.md) (PtyOptions, PtyResult, runInPty)
