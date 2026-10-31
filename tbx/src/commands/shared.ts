@@ -1,7 +1,6 @@
-import { syncGenerated } from '../../../shared/ts/src/gen/index.ts';
 import { extractSharedDocs } from '../../../shared/ts/src/gen/shared-docs.ts';
 import type { TbxContext } from '../context.ts';
-import { type Lang, renderTemplates, templateVariables, writeNewFiles } from '../templates.ts';
+import { type Lang, renderTemplates, scaffold, templateVariables } from '../templates.ts';
 
 /** One `tbx shared search` hit: a public shared symbol and the first line of its doc. */
 export interface SharedHit {
@@ -46,15 +45,14 @@ export async function searchShared(ctx: TbxContext, term: string): Promise<void>
 /**
  * Scaffolds a shared module in `lang` from `tbx/templates/shared/<lang>`: a doc-commented
  * stub and one failing test, then regenerates the shared doc pages. Exits 2 for an invalid
- * name or when any of the module's files already exists.
+ * name or when any of the module's files already exists. A failure after writing removes
+ * every file and directory it created.
  */
 export async function newShared(ctx: TbxContext, name: string, lang: Lang): Promise<void> {
   const files = await renderTemplates(
     `shared/${lang}`,
     templateVariables(name, 'shared module name'),
   );
-  await writeNewFiles(ctx.root, files);
-  await syncGenerated(ctx.root);
-  const paths = files.map((file) => file.path);
+  const paths = await scaffold(ctx.root, files);
   ctx.out.result(ctx.json ? { name, lang, files: paths } : paths.join('\n'));
 }

@@ -1,6 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "organizeImports": { "enabled": true },
+  "organizeImports": {
+    "enabled": true
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -31,7 +33,9 @@
         "useTemplate": "error",
         "useNamingConvention": {
           "level": "error",
-          "options": { "strictCase": false }
+          "options": {
+            "strictCase": false
+          }
         }
       },
       "suspicious": {
@@ -56,5 +60,30 @@
       "*.generated.ts",
       "*.code-workspace"
     ]
-  }
+  },
+  "overrides": [
+    {
+      "include": ["tests/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": {
+              "level": "error",
+              "options": {
+                "strictCase": false,
+                "conventions": [
+                  {
+                    "selector": {
+                      "kind": "objectLiteralProperty"
+                    },
+                    "formats": ["camelCase", "CONSTANT_CASE"]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

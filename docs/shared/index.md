@@ -16,9 +16,9 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)
 - [ts/gen/shared-docs](ts/gen/shared-docs.md) (extractSharedDocs, missingSharedDocs, renderSharedDocs, SharedModuleDoc, SharedSymbol)
 - [ts/gen/unit](ts/gen/unit.md) (renderSystemdTimer, renderUnit, UnitContext, UnitKind, unitLabel, UnitValidation, validateUnit)
-- [ts/manifest](ts/manifest.md) (ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, ToolManifest, UnitSpec)
+- [ts/manifest](ts/manifest.md) (ArgSpec, assertNoCollisions, BUILTIN_OPTIONS, describePathCollision, findPathCollisions, loadManifest, ManifestError, NAME_PATTERN, OptSpec, parseManifest, PathCollision, ToolManifest, UnitSpec)
 - [ts/output](ts/output.md) (createOutput, Output, OutputStreams, PROCESS_STREAMS)
-- [ts/paths](ts/paths.md) (binariesOnPath)
+- [ts/paths](ts/paths.md) (binariesOnPath, PathBinary, tbxBinDir)
 
 ## py
 

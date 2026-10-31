@@ -213,6 +213,38 @@ function identifiersOf(manifest: ToolManifest): [string, string][] {
   return identifiers;
 }
 
+/** A tool name or alias that matches an executable already on PATH. */
+export interface PathCollision {
+  /** The colliding name or alias. */
+  identifier: string;
+  /** Which tool owns it, for example `alias of tool "demo"`. */
+  owner: string;
+  /** Path of the PATH executable it shadows. */
+  binary: string;
+}
+
+/**
+ * Lists every name or alias in `manifests` that equals the name of one of `binaries`, in
+ * manifest order.
+ */
+export function findPathCollisions(
+  manifests: ToolManifest[],
+  binaries: readonly { name: string; path: string }[],
+): PathCollision[] {
+  const byName = new Map(binaries.map((binary) => [binary.name, binary.path]));
+  return manifests.flatMap((manifest) =>
+    identifiersOf(manifest).flatMap(([identifier, owner]) => {
+      const binary = byName.get(identifier);
+      return binary === undefined ? [] : [{ identifier, owner, binary }];
+    }),
+  );
+}
+
+/** Formats a `PathCollision` as `"<identifier>" collides: <owner> and PATH binary <path>`. */
+export function describePathCollision(collision: PathCollision): string {
+  return `"${collision.identifier}" collides: ${collision.owner} and PATH binary ${collision.binary}`;
+}
+
 /**
  * Ensures every tool name and alias is unique across tools and does not shadow a binary
  * already on PATH.

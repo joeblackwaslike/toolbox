@@ -1,26 +1,25 @@
-import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { stringify } from 'smol-toml';
 import { ExitCode, ToolError } from '../../../shared/ts/src/errors.ts';
-import { loadToolManifests, syncGenerated } from '../../../shared/ts/src/gen/index.ts';
+import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
 import {
   ManifestError,
   type ToolManifest,
   assertNoCollisions,
+  describePathCollision,
+  findPathCollisions,
   parseManifest,
 } from '../../../shared/ts/src/manifest.ts';
-import { binariesOnPath } from '../../../shared/ts/src/paths.ts';
 import type { TbxContext } from '../context.ts';
 import {
   type Lang,
   pathExists,
   renderTemplates,
+  scaffold,
   templateVariables,
-  writeNewFiles,
 } from '../templates.ts';
 
 const INITIAL_VERSION = '0.1.0';
-const EXECUTABLE = 0o755;
 
 function asUsageError(action: () => void): void {
   try {
@@ -43,12 +42,25 @@ function manifestToml(name: string, lang: Lang, summary: string): string {
   return toml;
 }
 
+async function assertNameFree(ctx: TbxContext, manifest: ToolManifest): Promise<void> {
+  for (const existing of await loadToolManifests(ctx.root)) {
+    asUsageError(() => {
+      assertNoCollisions([existing, manifest], []);
+    });
+  }
+  const [collision] = findPathCollisions([manifest], await ctx.pathBinaries());
+  if (collision !== undefined) {
+    throw new ToolError(describePathCollision(collision), ExitCode.usage);
+  }
+}
+
 /**
  * Scaffolds `tools/<name>/` from `tbx/templates/<lang>`: `tool.toml`, a `src/` entry wired to
  * the shared parser and helpers, one failing unit test as the TDD starting point and an
  * empty `tests/e2e/`, then regenerates READMEs, completions and docs. Exits 2 for an invalid
- * name or summary, an existing directory, or a name that collides with another tool's name
- * or alias or with a PATH binary.
+ * name or summary, an existing directory, or a name that collides with an existing tool's
+ * name or alias or with a PATH executable. Only the new tool is checked, so an existing
+ * collision between other tools does not block it. A failure after writing removes the tree.
  */
 export async function newTool(
   ctx: TbxContext,
@@ -61,20 +73,13 @@ export async function newTool(
   if (await pathExists(path.join(ctx.root, dir))) {
     throw new ToolError(`${dir} already exists`, ExitCode.usage);
   }
-  const manifest: ToolManifest = parseManifest(toml);
-  const existing = await loadToolManifests(ctx.root);
-  const binaries = await binariesOnPath(ctx.path);
-  asUsageError(() => {
-    assertNoCollisions([...existing, manifest], binaries);
-  });
+  await assertNameFree(ctx, parseManifest(toml));
   const rendered = await renderTemplates(options.lang, variables);
   const files = [{ path: 'tool.toml', content: toml }, ...rendered].map((file) => ({
     ...file,
     path: `${dir}/${file.path}`,
   }));
-  await writeNewFiles(ctx.root, files);
-  if (options.lang === 'sh') await chmod(path.join(ctx.root, dir, 'src', name), EXECUTABLE);
-  await syncGenerated(ctx.root);
-  const paths = files.map((file) => file.path);
+  const executables = options.lang === 'sh' ? [`${dir}/src/${name}`] : [];
+  const paths = await scaffold(ctx.root, files, executables);
   ctx.out.result(ctx.json ? { name, dir, files: paths } : `created ${dir}\n${paths.join('\n')}`);
 }

@@ -1,11 +1,17 @@
 import type { Output } from '../../shared/ts/src/output.ts';
+import type { PathBinary } from '../../shared/ts/src/paths.ts';
 
 /** What every `tbx` command receives once its command line has parsed. */
 export interface TbxContext {
   /** Repo root holding `tools/`, `shared/` and `docs/`. */
   readonly root: string;
-  /** PATH value searched for binaries that a tool name or alias would shadow. */
-  readonly path: string;
+  /** True when `CI` is `1` or `true`; PATH collisions then fail instead of warning. */
+  readonly ci: boolean;
+  /**
+   * Executables on PATH that a tool name or alias could shadow, excluding anything under the
+   * repo root or the tbx-managed bin directory.
+   */
+  readonly pathBinaries: () => Promise<PathBinary[]>;
   /** True when `--json` was given. */
   readonly json: boolean;
   /** Output channel, in JSON mode when `json` is true. */

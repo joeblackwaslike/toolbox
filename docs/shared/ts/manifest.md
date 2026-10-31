@@ -33,6 +33,23 @@ Flags the generated parsers add to every tool, in help order. A manifest option 
 reuse their long or short names, nor the positive form of a `no-` built-in (`input`),
 which Commander would pair with it into one negatable option.
 
+## describePathCollision
+
+```ts
+function describePathCollision(collision: PathCollision): string
+```
+
+Formats a `PathCollision` as `"<identifier>" collides: <owner> and PATH binary <path>`.
+
+## findPathCollisions
+
+```ts
+function findPathCollisions( manifests: ToolManifest[], binaries: readonly { name: string; path: string }[], ): PathCollision[]
+```
+
+Lists every name or alias in `manifests` that equals the name of one of `binaries`, in
+manifest order.
+
 ## loadManifest
 
 ```ts
@@ -78,6 +95,14 @@ function parseManifest(toml: string): ToolManifest
 Parses and validates the text of a `tool.toml`.
 
 - @throws {ManifestError} on TOML syntax errors or schema violations, naming the failing field.
+
+## PathCollision
+
+```ts
+interface PathCollision
+```
+
+A tool name or alias that matches an executable already on PATH.
 
 ## ToolManifest
 

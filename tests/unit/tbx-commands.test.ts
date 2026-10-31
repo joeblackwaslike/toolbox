@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
 import { checkDrift } from '../../shared/ts/src/gen/index.ts';
@@ -9,7 +9,8 @@ import { loadManifest } from '../../shared/ts/src/manifest.ts';
 import { runTbx } from '../../tbx/src/index.ts';
 import { REPO, fixtureRoot, scaffoldRoot } from '../helpers/roots.ts';
 
-const NO_PATH = { path: '' };
+const NO_PATH = { path: '', vars: {} };
+const EXECUTABLE = 0o755;
 
 type SharedHitJson = Record<string, string>;
 
@@ -58,11 +59,32 @@ describe('tbx help', () => {
   });
 });
 
-async function pathWith(...binaries: string[]): Promise<{ path: string }> {
-  const dir = await mkdtemp(join(tmpdir(), 'tbx-bin-'));
-  for (const binary of binaries) await writeFile(join(dir, binary), '');
-  return { path: dir };
+async function executablesIn(dir: string, ...binaries: string[]): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  for (const binary of binaries) {
+    await writeFile(join(dir, binary), '#!/bin/sh\n');
+    await chmod(join(dir, binary), EXECUTABLE);
+  }
 }
+
+async function pathWith(
+  ...binaries: string[]
+): Promise<{ path: string; vars: Record<string, string> }> {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'tbx-bin-')));
+  await executablesIn(dir, ...binaries);
+  return { path: dir, vars: {} };
+}
+
+async function addTool(root: string, name: string, alias: string): Promise<void> {
+  const demo = await readFile(join(root, 'tools/demo/tool.toml'), 'utf8');
+  await mkdir(join(root, 'tools', name));
+  await writeFile(
+    join(root, 'tools', name, 'tool.toml'),
+    demo.replace('name = "demo"', `name = "${name}"`).replace('alias = "dm"', `alias = "${alias}"`),
+  );
+}
+
+const BROKEN_PY = 'shared/py/tbx_shared/broken.py';
 
 describe('tbx gen', () => {
   it('gen writes every generated file and gen --check then passes', async () => {
@@ -85,23 +107,42 @@ describe('tbx gen', () => {
     expect(JSON.parse(json.stdout)).toEqual(['tools/demo/README.md']);
   });
 
-  it('gen refuses a tool whose alias shadows a PATH binary', async () => {
+  it('gen warns about a PATH collision by default and still writes', async () => {
     const root = await fixtureRoot();
-    const result = await runTbx(['gen'], { root, ...(await pathWith('dm')) });
-    expect(result.code).toBe(78);
-    expect(result.stderr).toContain('"dm" collides');
+    const env = await pathWith('dm');
+    const result = await runTbx(['gen'], { root, ...env });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain(
+      `warning: "dm" collides: alias of tool "demo" and PATH binary ${join(env.path, 'dm')}`,
+    );
+    expect(await readFile(join(root, 'tools/demo/README.md'), 'utf8')).toContain('# demo');
+    expect((await runTbx(['gen', '--check'], { root, ...env })).code).toBe(0);
+  });
+
+  it('gen --strict and CI=1 refuse a PATH collision with exit 78', async () => {
+    const root = await fixtureRoot();
+    const env = await pathWith('dm');
+    const strict = await runTbx(['gen', '--strict'], { root, ...env });
+    expect(strict.code).toBe(78);
+    expect(strict.stderr).toContain('"dm" collides');
     await expect(readFile(join(root, 'tools/demo/README.md'))).rejects.toThrow();
-    expect((await runTbx(['gen', '--check'], { root, ...(await pathWith('dm')) })).code).toBe(78);
+    expect((await runTbx(['gen', '--check'], { root, ...env, vars: { CI: '1' } })).code).toBe(78);
+    expect((await runTbx(['gen'], { root, ...env, vars: { CI: '1' } })).code).toBe(78);
+  });
+
+  it('gen ignores PATH entries under the repo root and the tbx bin dir', async () => {
+    const root = await fixtureRoot();
+    const binDir = await realpath(await mkdtemp(join(tmpdir(), 'tbx-managed-')));
+    await executablesIn(join(root, 'node_modules/.bin'), 'dm');
+    await executablesIn(binDir, 'demo');
+    const path = [join(root, 'node_modules/.bin'), binDir].join(delimiter);
+    const result = await runTbx(['gen', '--strict'], { root, path, vars: { TBX_BIN_DIR: binDir } });
+    expect(result).toMatchObject({ code: 0, stderr: '' });
   });
 
   it('gen refuses two tools that share a name or alias', async () => {
     const root = await fixtureRoot();
-    await mkdir(join(root, 'tools/other'));
-    const demo = await readFile(join(root, 'tools/demo/tool.toml'), 'utf8');
-    await writeFile(
-      join(root, 'tools/other/tool.toml'),
-      demo.replace('name = "demo"', 'name = "other"'),
-    );
+    await addTool(root, 'other', 'dm');
     const result = await runTbx(['gen'], { root, ...NO_PATH });
     expect(result.code).toBe(78);
     expect(result.stderr).toContain('"dm" collides');
@@ -122,6 +163,30 @@ describe('tbx new', () => {
     expect(binary.code).toBe(2);
     expect(binary.stderr).toContain('"git" collides: name of tool "git" and PATH binary');
     expect(await missing(join(root, 'tools/git'))).toBe(true);
+  });
+
+  it('new is not blocked by an unrelated existing collision', async () => {
+    const root = await fixtureRoot();
+    await addTool(root, 'other', 'dm');
+    const result = await runTbx(['new', 'hello', '--lang', 'sh', '-y'], {
+      root,
+      ...(await pathWith('demo')),
+    });
+    expect(result.code).toBe(0);
+    expect(await missing(join(root, 'tools/hello/tool.toml'))).toBe(false);
+  });
+
+  it('new removes everything it wrote when a later step fails, so a rerun succeeds', async () => {
+    const root = await scaffoldRoot();
+    await writeFile(join(root, BROKEN_PY), 'def (:\n');
+    await expect(
+      runTbx(['new', 'hello', '--lang', 'py', '-y'], { root, ...NO_PATH }),
+    ).rejects.toThrow();
+    expect(await missing(join(root, 'tools/hello'))).toBe(true);
+    await rm(join(root, BROKEN_PY));
+    expect((await runTbx(['new', 'hello', '--lang', 'py', '-y'], { root, ...NO_PATH })).code).toBe(
+      0,
+    );
   });
 
   it('new refuses an existing directory and an invalid name', async () => {
@@ -223,6 +288,18 @@ describe('tbx shared new', () => {
     );
     expect(pytest.status).toBe(1);
     expect(pytest.stdout).toContain('NotImplementedError: my_helper is not implemented');
+  });
+
+  it('shared new removes everything it wrote when a later step fails, so a rerun succeeds', async () => {
+    const root = await scaffoldRoot();
+    await writeFile(join(root, BROKEN_PY), 'def (:\n');
+    const argv = ['shared', 'new', 'roll', '--lang', 'ts', '-y'];
+    await expect(runTbx(argv, { root, ...NO_PATH })).rejects.toThrow();
+    expect(await missing(join(root, 'shared/ts/src/roll.ts'))).toBe(true);
+    expect(await missing(join(root, 'tests'))).toBe(true);
+    expect(await missing(join(root, 'shared/ts/src'))).toBe(false);
+    await rm(join(root, BROKEN_PY));
+    expect((await runTbx(argv, { root, ...NO_PATH })).code).toBe(0);
   });
 
   it('shared new refuses an existing module', async () => {

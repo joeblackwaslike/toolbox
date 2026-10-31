@@ -5,11 +5,34 @@
 ## binariesOnPath
 
 ```ts
-async function binariesOnPath( pathVariable: string = process.env.PATH ?? '', ): Promise<string[]>
+async function binariesOnPath( pathVariable: string = process.env.PATH ?? '', excludedRoots: readonly string[] = [], ): Promise<PathBinary[]>
 ```
 
-Lists the entry names in every directory of a PATH-style string, sorted and without
-duplicates. Empty entries and directories that cannot be read are skipped. Every name
-counts, executable or not.
+Lists the executable regular files (symlinks followed) in each directory of a PATH-style
+string, one per name with the first PATH entry winning, sorted by name. Empty entries,
+unreadable directories, non-executables, directories and broken symlinks are skipped, as
+are PATH entries and executables whose real path lies inside one of `excludedRoots` (for
+example the repo checkout and the tbx-managed bin directory, so a tool never collides with
+its own shim).
 
 - @param pathVariable the PATH value; defaults to `process.env.PATH`.
+- @param excludedRoots directories whose contents never count as PATH binaries.
+
+## PathBinary
+
+```ts
+interface PathBinary
+```
+
+An executable found on PATH: its file name and the PATH entry path it was found at.
+
+## tbxBinDir
+
+```ts
+function tbxBinDir(env: Readonly<Record<string, string | undefined>> = process.env): string
+```
+
+The directory `tbx install` links tool binaries into: `$TBX_BIN_DIR` when set, otherwise
+`$XDG_DATA_HOME/tbx/bin`, otherwise `~/.local/share/tbx/bin`.
+
+- @param env the environment to read; defaults to `process.env`.

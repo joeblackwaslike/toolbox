@@ -4,6 +4,7 @@ import { Command, CommanderError, Option } from 'commander';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { ManifestError } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
+import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
 import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
 import { list } from './commands/list.ts';
@@ -14,12 +15,26 @@ import { LANGS, type Lang } from './templates.ts';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** Where `runTbx` works: the repo root and the PATH used for collision checks. */
+/** Where `runTbx` works: the repo root, PATH and environment used for collision checks. */
 export interface TbxEnv {
   /** Repo root holding `tools/`, `shared/` and `docs/`. */
   root: string;
-  /** PATH searched for binaries a tool name would shadow; defaults to `process.env.PATH`. */
+  /** PATH searched for binaries a tool name would shadow; defaults to `vars.PATH`. */
   path?: string;
+  /** Environment for `CI`, `TBX_BIN_DIR`, `XDG_DATA_HOME` and `HOME`; defaults to `process.env`. */
+  vars?: Readonly<Record<string, string | undefined>>;
+}
+
+const CI_VALUES: ReadonlySet<string> = new Set(['1', 'true']);
+
+function contextBase(env: TbxEnv): Omit<TbxContext, 'json' | 'out'> {
+  const variables = env.vars ?? process.env;
+  const pathVariable = env.path ?? variables.PATH ?? '';
+  return {
+    root: env.root,
+    ci: CI_VALUES.has(variables.CI ?? ''),
+    pathBinaries: () => binariesOnPath(pathVariable, [env.root, tbxBinDir(variables)]),
+  };
 }
 
 /** Exit code and captured output of one `runTbx` call. */
@@ -68,7 +83,7 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
   const run = (command: Command, body: Body): Promise<void> => {
     const json = command.optsWithGlobals<GlobalFlags>().json === true;
     const out = createOutput({ json, streams });
-    return body({ root: env.root, path: env.path ?? process.env.PATH ?? '', json, out });
+    return body({ ...contextBase(env), json, out });
   };
   program
     .command('list')
@@ -78,8 +93,14 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .command('gen')
     .description('Regenerate READMEs, completions and docs; --check lists drift instead')
     .option('--check', 'Write nothing; exit 1 when a generated file is out of date')
-    .action((options: { check?: boolean }, command: Command) =>
-      run(command, (ctx) => gen(ctx, { check: options.check === true })),
+    .option(
+      '--strict',
+      'Fail (exit 78) on a PATH-binary collision instead of warning; implied by CI=1',
+    )
+    .action((options: { check?: boolean; strict?: boolean }, command: Command) =>
+      run(command, (ctx) =>
+        gen(ctx, { check: options.check === true, strict: options.strict === true }),
+      ),
     );
   program
     .command('new')

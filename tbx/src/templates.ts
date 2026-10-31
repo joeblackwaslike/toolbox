@@ -1,9 +1,9 @@
-import { access, readFile, readdir } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { type GeneratedFile, compareText } from '../../shared/ts/src/gen/files.ts';
-import { writeGenerated } from '../../shared/ts/src/gen/index.ts';
+import { syncGenerated } from '../../shared/ts/src/gen/index.ts';
 import { NAME_PATTERN } from '../../shared/ts/src/manifest.ts';
 
 const TEMPLATES = path.join(path.dirname(fileURLToPath(import.meta.url)), '../templates');
@@ -81,16 +81,53 @@ export async function pathExists(file: string): Promise<boolean> {
   }
 }
 
+const EXECUTABLE = 0o755;
+
+async function rollBack(created: readonly string[]): Promise<void> {
+  for (const target of [...created].reverse()) await rm(target, { recursive: true, force: true });
+}
+
+async function writeTracked(
+  root: string,
+  files: GeneratedFile[],
+  created: string[],
+): Promise<void> {
+  for (const file of files) {
+    const target = path.join(root, file.path);
+    const madeDir = await mkdir(path.dirname(target), { recursive: true });
+    if (madeDir !== undefined) created.push(madeDir);
+    await writeFile(target, file.content, { flag: 'wx' });
+    created.push(target);
+  }
+}
+
 /**
- * Writes `files` under `root`, but only when none of them exists yet.
+ * Writes new `files` under `root`, marks `executables` (paths relative to `root`) as
+ * executable, then regenerates READMEs, completions and docs with `syncGenerated`. Nothing is
+ * written when any of the files already exists. If a later step throws, every file and
+ * directory this call created is removed before the error is rethrown, so a rerun starts
+ * clean. Returns the written paths.
  *
  * @throws {ToolError} with exit code 2 naming the first file that already exists.
  */
-export async function writeNewFiles(root: string, files: GeneratedFile[]): Promise<void> {
+export async function scaffold(
+  root: string,
+  files: GeneratedFile[],
+  executables: readonly string[] = [],
+): Promise<string[]> {
   for (const file of files) {
     if (await pathExists(path.join(root, file.path))) {
       throw new ToolError(`${file.path} already exists`, ExitCode.usage);
     }
   }
-  await writeGenerated(root, files);
+  const created: string[] = [];
+  try {
+    await writeTracked(root, files, created);
+    for (const file of executables) await chmod(path.join(root, file), EXECUTABLE);
+    await syncGenerated(root);
+  } catch (error) {
+    await rollBack(created);
+    throw error;
+  }
+  return files.map((file) => file.path);
 }
