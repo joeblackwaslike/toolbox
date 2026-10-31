@@ -84,4 +84,17 @@ describe('runInPty', () => {
     expect(result).toMatchObject({ code: 1, timedOut: false, started: false });
     expect(result.output).toContain('out of pty devices');
   });
+
+  it('resolves, without an EPIPE crash, when the driver exits before reading its input', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tbx-pty-'));
+    const bogus = join(dir, 'python3');
+    await writeFile(bogus, '#!/bin/sh\nexec 0<&-\nexit 1\n');
+    await chmod(bogus, 0o755);
+    const result = await runInPty(['sh', '-c', 'exit 0'], {
+      env: { PATH: [dir, ENV.PATH].join(delimiter) },
+      input: 'y\n'.repeat(1 << 20),
+      deadlineMs: DEADLINE_MS,
+    });
+    expect(result).toMatchObject({ code: 1, timedOut: false, started: false });
+  });
 });

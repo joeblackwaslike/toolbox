@@ -30,7 +30,8 @@ comes from Python's standard `pty` module (`DRIVER`, run by the `python3` on `en
 which behaves the same under Node and Bun. At `deadlineMs` the command's whole process group
 gets SIGHUP and then, after a short grace, SIGKILL, and the call resolves with
 `timedOut: true`. A command that waits for more input than `input` holds therefore times out
-instead of hanging. A command that cannot be executed exits 127 with `started: true`; a
+instead of hanging. Input left unread when the driver exits is dropped, and the exit code
+reports what happened. A command that cannot be executed exits 127 with `started: true`; a
 driver that fails before the terminal exists gives `started: false`.
 
 - @throws {Error} when `python3` is not on `env.PATH` or cannot be started.
