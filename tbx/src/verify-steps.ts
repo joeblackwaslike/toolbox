@@ -157,6 +157,12 @@ async function nonInteractiveFailure(
   const result = await runInstalled(installed, [...argv, '-y', '--json'], deadlineMs);
   const label = `non-interactive run (${[...argv, '-y', '--json'].join(' ')})`;
   if (result.timedOut) return `${label} killed at the ${deadlineMs / MS_PER_SECOND}s deadline`;
+  if (result.status === null) {
+    return `${label} was killed by ${result.signal ?? 'a signal'}:\n${tail(result.stderr)}`;
+  }
+  if (NOT_RUNNABLE.has(result.status)) {
+    return `${label} could not run the tool (exit ${result.status}):\n${tail(result.stderr)}`;
+  }
   if (result.status === 0) {
     return isJson(result.stdout) ? null : `${label}: stdout is not one JSON document`;
   }
@@ -208,8 +214,8 @@ async function suiteFailures(
 
 /**
  * End to end against the installed binary in the isolated environment: a non-interactive run
- * (`<required placeholders> -y --json` on a non-TTY stdin) must exit before `deadlineMs` with
- * JSON on stdout, or nothing on stdout when it fails; an interactive run (the placeholders, no
+ * (`<required placeholders> -y --json` on a non-TTY stdin) must exit before `deadlineMs`, not
+ * by a signal and not with 126 or 127, with JSON on stdout, or nothing on stdout when it fails; an interactive run (the placeholders, no
  * flags, in a pty, stdin given one Ctrl-D) must start its pty, then exit before `deadlineMs`,
  * not by a signal and not with 126 or 127 (the tool could not be executed);
  * then the tool's own `tests/e2e`, when it has any, must pass, run with `TBX_TOOL_BIN` set to

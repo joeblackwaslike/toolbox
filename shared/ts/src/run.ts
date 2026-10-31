@@ -12,6 +12,8 @@ export interface RunResult {
   stderr: string;
   /** True when the timeout passed and the command was killed. */
   timedOut: boolean;
+  /** The signal that ended the command, or `null` when it exited normally. */
+  signal: NodeJS.Signals | null;
   /** True when the output passed the capture cap: the rest was dropped and the command killed. */
   truncated: boolean;
 }
@@ -120,11 +122,11 @@ export function runOpen(
       clearTimeout(timer);
       reject(error);
     });
-    child.on('close', (status) => {
+    child.on('close', (status, signal) => {
       clearTimeout(timer);
       child.stdin.destroy();
       const [stdout = '', stderr = ''] = captured.texts;
-      resolve({ status, stdout, stderr, timedOut, truncated: captured.truncated });
+      resolve({ status, stdout, stderr, timedOut, signal, truncated: captured.truncated });
     });
     if (options.closeStdin === true) child.stdin.end();
   });

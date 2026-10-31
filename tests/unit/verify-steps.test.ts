@@ -77,3 +77,40 @@ describe('endToEndStep interactive run', () => {
     TEST_TIMEOUT_MS,
   );
 });
+
+const WHEN_NON_INTERACTIVE = 'case " $* " in *" -y "*)';
+
+describe('endToEndStep non-interactive run', () => {
+  it(
+    'fails when the tool is killed by a signal',
+    async () => {
+      const outcome = await stepFor(
+        `${WHEN_NON_INTERACTIVE} kill -KILL $$ ;; esac\n${WELL_BEHAVED}`,
+      );
+      expect(outcome.status).toBe('fail');
+      expect(outcome.detail).toMatch(/non-interactive run .*killed by SIGKILL/);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it.each([126, 127])(
+    'fails when the tool exits %i (could not be executed)',
+    async (code) => {
+      const outcome = await stepFor(
+        `${WHEN_NON_INTERACTIVE} exit ${code} ;; esac\n${WELL_BEHAVED}`,
+      );
+      expect(outcome.status).toBe('fail');
+      expect(outcome.detail).toMatch(new RegExp(`non-interactive run .*exit ${code}`));
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it.each([1, 2])(
+    'passes a domain failure (exit %i with nothing on stdout)',
+    async (code) => {
+      const body = `${WHEN_NON_INTERACTIVE} echo nope >&2; exit ${code} ;; esac\n${WELL_BEHAVED}`;
+      expect(await stepFor(body)).toEqual({ status: 'pass' });
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
