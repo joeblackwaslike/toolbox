@@ -16,10 +16,18 @@ lint-py:
   uv run ruff format --check .
   uv run mypy shared/py/tbx_shared
 
+_sh-files:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  git ls-files -co --exclude-standard -- '*.sh' '*.bash'
+  git ls-files -co --exclude-standard -- 'tools/*/src/*' | while IFS= read -r file; do
+    head -n 1 "$file" | grep -Eq '^#!.*[/ ](ba)?sh( |$)' && printf '%s\n' "$file"
+  done || true
+
 lint-sh:
   #!/usr/bin/env bash
   set -euo pipefail
-  files=$(git ls-files -co --exclude-standard -- '*.sh' '*.bash')
+  files=$(just --quiet _sh-files)
   [ -z "$files" ] && exit 0
   shellcheck $files
   shfmt -d $files
@@ -27,7 +35,7 @@ lint-sh:
 format-sh:
   #!/usr/bin/env bash
   set -euo pipefail
-  files=$(git ls-files -co --exclude-standard -- '*.sh' '*.bash')
+  files=$(just --quiet _sh-files)
   [ -z "$files" ] && exit 0
   shfmt -w $files
 
