@@ -37,17 +37,24 @@ describe('tbx list', () => {
     const root = await fixtureRoot();
     const result = await runTbx(['list', '--json'], { root, ...NO_PATH });
     expect(result.code).toBe(0);
-    const tools = JSON.parse(result.stdout) as { name: string }[];
-    expect(tools.map((tool) => tool.name)).toEqual(['demo']);
+    const tools = JSON.parse(result.stdout) as { name: string; installed: string | null }[];
+    expect(tools.map((tool) => [tool.name, tool.installed])).toEqual([['demo', null]]);
   });
 
-  it('list prints a table with name, version, language, platforms and summary', async () => {
+  it('list prints a table with name, version, installed, language, platforms and summary', async () => {
     const root = await fixtureRoot();
     const result = await runTbx(['list'], { root, ...NO_PATH });
     expect(result.code).toBe(0);
     const [header, row] = result.stdout.trimEnd().split('\n');
-    expect(header?.split(/\s+/)).toEqual(['name', 'version', 'language', 'platforms', 'summary']);
-    expect(row).toMatch(/^demo\s+0\.1\.0\s+ts\s+macos,linux\s+Demo tool for parser/);
+    expect(header?.split(/\s+/)).toEqual([
+      'name',
+      'version',
+      'installed',
+      'language',
+      'platforms',
+      'summary',
+    ]);
+    expect(row).toMatch(/^demo\s+0\.1\.0\s+-\s+ts\s+macos,linux\s+Demo tool for parser/);
   });
 });
 

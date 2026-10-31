@@ -1,7 +1,9 @@
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
 import type { TbxContext } from '../context.ts';
+import { readState, recordOf, tbxPaths } from '../state.ts';
 
-const HEADER = ['name', 'version', 'language', 'platforms', 'summary'];
+const HEADER = ['name', 'version', 'installed', 'language', 'platforms', 'summary'];
+const NOT_INSTALLED = '-';
 const GAP = 2;
 
 function table(rows: string[][]): string {
@@ -20,11 +22,17 @@ function table(rows: string[][]): string {
 }
 
 /**
- * Prints every tool under `tools/`: a table of name, version, language, platforms and
- * summary, or the array of manifests with `--json`.
+ * Prints every tool under `tools/` with the version installed from `installed.json`: a table of
+ * name, version, installed (`-` when not installed), language, platforms and summary, or with
+ * `--json` the array of manifests, each with `installed: string | null`.
  */
 export async function list(ctx: TbxContext): Promise<void> {
-  const manifests = await loadToolManifests(ctx.root);
+  const state = await readState(tbxPaths(ctx.home, ctx.env));
+  const loaded = await loadToolManifests(ctx.root);
+  const manifests = loaded.map((m) => ({
+    ...m,
+    installed: recordOf(state, m.name)?.version ?? null,
+  }));
   if (ctx.json) {
     ctx.out.result(manifests);
     return;
@@ -36,6 +44,7 @@ export async function list(ctx: TbxContext): Promise<void> {
   const rows = manifests.map((m) => [
     m.name,
     m.version,
+    m.installed ?? NOT_INSTALLED,
     m.language,
     m.platforms.join(','),
     m.summary,

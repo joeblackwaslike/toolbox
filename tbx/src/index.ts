@@ -135,7 +135,7 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
   };
   program
     .command('list')
-    .description('List every tool in tools/')
+    .description('List every tool in tools/ with its installed version')
     .action((_options: unknown, command: Command) => run(command, list));
   program
     .command('gen')

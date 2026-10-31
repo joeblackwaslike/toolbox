@@ -22,6 +22,7 @@ interface Listed {
   name: string;
   version: string;
   platforms: string[];
+  installed: string | null;
 }
 
 let root: string;
@@ -89,9 +90,18 @@ describe('every tool in one root', () => {
     }
     expect(Object.keys(state.tools).sort()).toEqual(supported);
 
+    const after = JSON.parse((await tbx(['--json', 'list'])).stdout) as Listed[];
+    expect(after.map((tool) => [tool.name, tool.installed])).toEqual(
+      entries.map((entry) => [entry.name, supported.includes(entry.name) ? entry.version : null]),
+    );
     const table = (await tbx(['list'])).stdout;
-    for (const entry of entries)
-      expect(table).toMatch(new RegExp(`${entry.name}\\s+${entry.version.replaceAll('.', '\\.')}`));
+    for (const entry of entries) {
+      const installed = supported.includes(entry.name) ? entry.version : '-';
+      const version = (text: string): string => text.replaceAll('.', String.raw`\.`);
+      expect(table).toMatch(
+        new RegExp(String.raw`${entry.name}\s+${version(entry.version)}\s+${version(installed)}\s`),
+      );
+    }
   });
 
   it("tbx help <tool> --json matches that tool's tool.toml for every tool", async () => {
