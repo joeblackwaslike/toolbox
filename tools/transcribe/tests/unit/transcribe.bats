@@ -19,6 +19,7 @@ exit 0
 STUB
   make_stub claude <<'STUB'
 echo "claude $*" >>"$STUB_LOG"
+printf '%s\n' "$@" >"$STUB_CLAUDE_ARGS"
 cat >"$STUB_CLAUDE_STDIN"
 [[ ${STUB_CLAUDE_MODE:-ok} == fail ]] && { echo "claude boom" >&2; exit 1; }
 printf '%s\n' "${STUB_CLAUDE_OUTPUT:-# Formatted}"
@@ -90,6 +91,7 @@ setup() {
   install_stubs
   export STUB_LOG="$LOG"
   export STUB_CLAUDE_STDIN="$T/claude_stdin"
+  export STUB_CLAUDE_ARGS="$T/claude_args"
   unset STUB_YTDLP_MODE STUB_WHISPER_MODE STUB_CLAUDE_MODE STUB_CLAUDE_OUTPUT STUB_TRANSCRIPT
 }
 
@@ -216,12 +218,48 @@ count_calls() {
   [ "$(count_calls claude)" = "0" ]
 }
 
-@test "claude receives the prompt and the transcript" {
+@test "claude receives the prompt as the system prompt and the transcript on stdin" {
   export STUB_TRANSCRIPT="the quick brown fox"
   run_tool "$URL"
   [ "$status" -eq 0 ]
-  [[ "$(<"$LOG")" == *"claude -p Reformat the following audio transcript"* ]]
+  local -a args
+  mapfile -t args <"$STUB_CLAUDE_ARGS"
+  [ "${#args[@]}" -eq 9 ]
+  [ "${args[0]}" = "-p" ]
+  [ "${args[1]}" = "--tools" ]
+  [ "${args[2]}" = "" ]
+  [ "${args[3]}" = "--setting-sources" ]
+  [ "${args[4]}" = "" ]
+  [ "${args[5]}" = "--strict-mcp-config" ]
+  [ "${args[6]}" = "--no-session-persistence" ]
+  [ "${args[7]}" = "--system-prompt" ]
+  [[ "${args[8]}" == "Reformat the following audio transcript"* ]]
   [[ "$(<"$STUB_CLAUDE_STDIN")" == *"the quick brown fox"* ]]
+}
+
+@test "claude never runs without every tool disabled" {
+  run_tool "$URL"
+  [ "$status" -eq 0 ]
+  [ "$(count_calls claude)" = "1" ]
+  local -a args
+  mapfile -t args <"$STUB_CLAUDE_ARGS"
+  local i tools=0
+  for i in "${!args[@]}"; do
+    if [ "${args[$i]}" = "--tools" ]; then
+      tools=$((tools + 1))
+      [ "${args[$((i + 1))]}" = "" ]
+    fi
+  done
+  [ "$tools" -eq 1 ]
+  [ "$(grep -c '^claude ' "$LOG")" = "$(grep -c '^claude -p --tools  --setting-sources  ' "$LOG")" ]
+}
+
+@test "yt-dlp and mlx-whisper run at pinned versions" {
+  run_tool "$URL"
+  [ "$status" -eq 0 ]
+  [ "$(grep -cF -- "uvx --from yt-dlp[default]==2026.8.19 yt-dlp " "$LOG")" = "1" ]
+  [ "$(grep -cF -- "uvx --from mlx-whisper==0.4.3 mlx_whisper " "$LOG")" = "1" ]
+  [ "$(grep -c '^uvx ' "$LOG")" = "2" ]
 }
 
 @test "a claude failure propagates" {

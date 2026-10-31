@@ -4,9 +4,13 @@
 
 ## What it runs
 
-1. `uvx yt-dlp` downloads the best audio as mp3. It tries with Chrome cookies first and retries without them if that fails.
-2. `uvx mlx_whisper` transcribes the audio with the `mlx-community/whisper-large-v3-turbo` model. mlx-whisper needs Apple Silicon, so the tool is macOS only.
+1. yt-dlp downloads the best audio as mp3. It tries with Chrome cookies first and retries without them if that fails. It runs with `--remote-components ejs:github`, which lets yt-dlp fetch the JavaScript challenge solver it needs for YouTube from GitHub.
+2. mlx-whisper transcribes the audio with the `mlx-community/whisper-large-v3-turbo` model. mlx-whisper needs Apple Silicon, so the tool is macOS only.
 3. `claude -p` reformats the transcript with a title, headings and paragraph breaks. If the reply is wrapped in one markdown code fence, the fence is removed.
+
+Both Python tools run through `uvx` at pinned versions: `yt-dlp[default]==2026.8.19` (released 2026-08-19) and `mlx-whisper==0.4.3` (released 2025-08-29). To move to a newer release, change `YT_DLP` or `MLX_WHISPER` at the top of `src/transcribe`.
+
+The transcript is text from the internet, so `claude` gets it on stdin and runs with `--tools ""` (no tools), `--setting-sources ""` (none of your settings, hooks or plugins), `--strict-mcp-config` (no MCP servers) and `--no-session-persistence` (no saved session). The formatting instructions go in `--system-prompt`.
 
 Progress and tool noise go to stderr. Stdout holds only the markdown, so `transcribe <url> > notes.md` works. The temporary work directory is deleted on exit, including after a failure.
 
