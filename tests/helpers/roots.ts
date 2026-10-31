@@ -1,4 +1,4 @@
-import { cp, mkdtemp, symlink } from 'node:fs/promises';
+import { cp, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,7 +29,21 @@ export async function fixtureRoot(): Promise<string> {
  * repo's `node_modules`, so scaffolded files can be run and linted outside the checkout.
  */
 export async function scaffoldRoot(): Promise<string> {
+  return withSupport(await fixtureRoot());
+}
+
+/** Like `scaffoldRoot`, but `tools/` holds copies of the repo's real tools instead of the fixtures. */
+export async function realToolsRoot(): Promise<string> {
   const root = await fixtureRoot();
+  await rm(join(root, 'tools'), { recursive: true });
+  await cp(join(REPO, 'tools'), join(root, 'tools'), {
+    recursive: true,
+    filter: (source) => !/node_modules|__pycache__|\.venv/.test(source),
+  });
+  return withSupport(root);
+}
+
+async function withSupport(root: string): Promise<string> {
   await cp(join(REPO, 'shared'), join(root, 'shared'), {
     recursive: true,
     filter: (source) => !/__pycache__|\.egg-info/.test(source),
