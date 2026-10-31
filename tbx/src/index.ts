@@ -8,6 +8,7 @@ import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
+import { newShared, searchShared } from './commands/shared.ts';
 import type { TbxContext } from './context.ts';
 import { LANGS, type Lang } from './templates.ts';
 
@@ -88,6 +89,25 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .option('-s, --summary <summary>', 'One-line summary for tool.toml')
     .action((name: string, options: NewOptions, command: Command) =>
       run(command, (ctx) => newTool(ctx, name, withSummary(options))),
+    );
+  const shared = program
+    .command('shared')
+    .description('Search or scaffold the helpers under shared/')
+    .helpCommand(false);
+  shared
+    .command('search')
+    .description('Find public shared symbols by name or doc comment')
+    .argument('<term>', 'Word to look for, ignoring case')
+    .action((term: string, _options: unknown, command: Command) =>
+      run(command, (ctx) => searchShared(ctx, term)),
+    );
+  shared
+    .command('new')
+    .description('Scaffold a shared module with a doc stub and a failing test')
+    .argument('<name>', 'Module name')
+    .addOption(langOption())
+    .action((name: string, options: { lang: Lang }, command: Command) =>
+      run(command, (ctx) => newShared(ctx, name, options.lang)),
     );
   program
     .command('help')

@@ -1,0 +1,13 @@
+#!/usr/bin/env bats
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  MODULE="${BATS_TEST_DIRNAME}/../../shared/sh/{{name}}.sh"
+}
+
+@test "tbx_{{ident}} prints its result" {
+  run bash -c "source '$MODULE'; tbx_{{ident}}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "replace with the expected result" ]
+}

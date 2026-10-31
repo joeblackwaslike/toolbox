@@ -4,11 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { usageOf } from '../../shared/ts/src/cli.ts';
+import { checkDrift } from '../../shared/ts/src/gen/index.ts';
 import { loadManifest } from '../../shared/ts/src/manifest.ts';
 import { runTbx } from '../../tbx/src/index.ts';
 import { REPO, fixtureRoot, scaffoldRoot } from '../helpers/roots.ts';
 
 const NO_PATH = { path: '' };
+
+type SharedHitJson = Record<string, string>;
 
 async function missing(file: string): Promise<boolean> {
   return access(file).then(
@@ -155,6 +158,89 @@ describe('tbx new', () => {
     expect(bats.status).toBe(1);
     expect(bats.stdout).toContain('not ok 1 hello prints its result as JSON');
     expect(bats.stdout).toContain(`'"replace with what hello prints"'`);
+  });
+});
+
+describe('tbx shared search', () => {
+  it('shared search finds a helper by a word in its doc comment', async () => {
+    const result = await runTbx(['shared', 'search', 'MACHINE-readable', '--json'], {
+      root: REPO,
+      ...NO_PATH,
+    });
+    expect(result.code).toBe(0);
+    const hits = JSON.parse(result.stdout) as SharedHitJson[];
+    expect(hits).toContainEqual({
+      lang: 'ts',
+      module: 'output',
+      symbol: 'Output',
+      signature: 'interface Output',
+      summary:
+        "Output channel for a tool. `result` is the program's answer and goes to stdout; `info` and",
+    });
+    const retry = await runTbx(['shared', 'search', 'retry', '--json'], { root: REPO, ...NO_PATH });
+    const symbols = (JSON.parse(retry.stdout) as SharedHitJson[]).map(
+      (hit) => `${hit.lang}/${hit.symbol}`,
+    );
+    expect(symbols).toEqual(['py/retry_policy', 'py/with_retry']);
+  });
+
+  it('shared search matches a symbol name and prints one line per hit', async () => {
+    const result = await runTbx(['shared', 'search', 'binariesonpath'], { root: REPO, ...NO_PATH });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('ts/paths.binariesOnPath');
+    expect(result.stdout).toContain('function binariesOnPath(');
+    const none = await runTbx(['shared', 'search', 'zzz-no-such-word', '--json'], {
+      root: REPO,
+      ...NO_PATH,
+    });
+    expect(JSON.parse(none.stdout)).toEqual([]);
+  });
+});
+
+describe('tbx shared new', () => {
+  it('shared new --lang py creates a module, a failing test and a doc stub', async () => {
+    const root = await scaffoldRoot();
+    const result = await runTbx(['shared', 'new', 'my-helper', '--lang', 'py', '-y'], {
+      root,
+      ...NO_PATH,
+    });
+    expect(result.code).toBe(0);
+    const module = await readFile(join(root, 'shared/py/tbx_shared/my_helper.py'), 'utf8');
+    expect(module).toContain('def my_helper() -> str:');
+    expect(await readFile(join(root, 'docs/shared/py/my_helper.md'), 'utf8')).toContain(
+      '## my_helper',
+    );
+    expect(await checkDrift(root)).toEqual([]);
+    const pytest = spawnSync(
+      'env',
+      [
+        `PYTHONPATH=${join(root, 'shared/py')}`,
+        'uv',
+        ...['run', '--project', REPO, 'pytest', '-p', 'no:faulthandler', '-q'],
+        'shared/py/tests/test_my_helper.py',
+      ],
+      { cwd: root, encoding: 'utf8' },
+    );
+    expect(pytest.status).toBe(1);
+    expect(pytest.stdout).toContain('NotImplementedError: my_helper is not implemented');
+  });
+
+  it('shared new refuses an existing module', async () => {
+    const root = await scaffoldRoot();
+    const before = await readFile(join(root, 'shared/ts/src/output.ts'), 'utf8');
+    const result = await runTbx(['shared', 'new', 'output', '--lang', 'ts', '-y'], {
+      root,
+      ...NO_PATH,
+    });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('shared/ts/src/output.ts already exists');
+    expect(await readFile(join(root, 'shared/ts/src/output.ts'), 'utf8')).toBe(before);
+    expect(await missing(join(root, 'tests/unit/output.test.ts'))).toBe(true);
+    const bad = await runTbx(['shared', 'new', '9lives', '--lang', 'sh', '-y'], {
+      root,
+      ...NO_PATH,
+    });
+    expect(bad.code).toBe(2);
   });
 });
 
