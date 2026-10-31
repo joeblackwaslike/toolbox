@@ -17,4 +17,5 @@ function renderCompletions(m: ToolManifest, shell: CompletionShell): string
 ```
 
 Renders a completion script for one shell from the manifest's options and the built-in
-flags. The tool name and its alias both complete. zsh output starts with `#compdef`.
+flags. The tool name and its alias both complete. zsh output starts with `#compdef`; every
+shell's output has the `GENERATED_MARKER` comment in its first two lines.

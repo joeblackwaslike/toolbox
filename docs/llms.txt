@@ -20,7 +20,7 @@
 - [ts/gen-parser](docs/shared/ts/gen-parser.md): generateShellParser
 - [ts/gen/completions](docs/shared/ts/gen/completions.md): CompletionShell, renderCompletions
 - [ts/gen/contract](docs/shared/ts/gen/contract.md): CONTRACT_PLACEHOLDER, ContractCase, generateContractTests
-- [ts/gen/files](docs/shared/ts/gen/files.md): GeneratedFile, compareText
+- [ts/gen/files](docs/shared/ts/gen/files.md): GENERATED_MARKER, GeneratedFile, compareText
 - [ts/gen/index](docs/shared/ts/gen/index.md): checkDrift, generateAll, loadToolManifests, syncGenerated, undocumentedSymbols, writeGenerated
 - [ts/gen/readme](docs/shared/ts/gen/readme.md): ReadmeOptions, renderCatalog, renderToolReadme
 - [ts/gen/shared-docs](docs/shared/ts/gen/shared-docs.md): DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs

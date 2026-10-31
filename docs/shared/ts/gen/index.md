@@ -41,10 +41,11 @@ existing, is invalid, or names a tool other than its directory.
 async function syncGenerated(root: string): Promise<string[]>
 ```
 
-Writes `generateAll(root)` and deletes stale generated files: anything under
-`tools/<name>/completions/` of a tool with a valid `tool.toml`, under `docs/shared/`, or
-`docs/catalog.md` and `docs/llms.txt`, that is no longer generated. A `tools/<dir>/` without
-a `tool.toml` and files outside those roots are never touched. Returns the deleted paths.
+Writes `generateAll(root)` and deletes stale generated files that are no longer produced:
+anything under `docs/shared/`, and a `tools/<dir>/README.md` or `tools/<dir>/completions/*`
+whose first three lines carry `GENERATED_MARKER` (so a removed tool's generated files go, and
+hand-written files stay). Files outside those roots are never touched. Returns the deleted
+paths.
 
 - @throws {ManifestError} before writing anything when a manifest is unreadable or invalid.
 

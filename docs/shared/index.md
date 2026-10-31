@@ -11,7 +11,7 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/gen-parser](ts/gen-parser.md) (generateShellParser)
 - [ts/gen/completions](ts/gen/completions.md) (CompletionShell, renderCompletions)
 - [ts/gen/contract](ts/gen/contract.md) (CONTRACT_PLACEHOLDER, ContractCase, generateContractTests)
-- [ts/gen/files](ts/gen/files.md) (GeneratedFile, compareText)
+- [ts/gen/files](ts/gen/files.md) (GENERATED_MARKER, GeneratedFile, compareText)
 - [ts/gen/index](ts/gen/index.md) (checkDrift, generateAll, loadToolManifests, syncGenerated, undocumentedSymbols, writeGenerated)
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)
 - [ts/gen/shared-docs](ts/gen/shared-docs.md) (DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs)
