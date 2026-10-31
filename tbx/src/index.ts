@@ -4,6 +4,7 @@ import { Command, CommanderError } from 'commander';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { ManifestError } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
+import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
 import { list } from './commands/list.ts';
 import type { TbxContext } from './context.ts';
@@ -55,6 +56,13 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .command('list')
     .description('List every tool in tools/')
     .action((_options: unknown, command: Command) => run(command, list));
+  program
+    .command('gen')
+    .description('Regenerate READMEs, completions and docs; --check lists drift instead')
+    .option('--check', 'Write nothing; exit 1 when a generated file is out of date')
+    .action((options: { check?: boolean }, command: Command) =>
+      run(command, (ctx) => gen(ctx, { check: options.check === true })),
+    );
   program
     .command('help')
     .description("Print a tool's usage, as JSON with --json")

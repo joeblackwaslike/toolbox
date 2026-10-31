@@ -53,9 +53,9 @@ test-sh:
   bats $files
 
 gen:
-  bun shared/ts/src/gen/cli.ts
+  pnpm --silent tbx gen
 
 gen-check:
-  bun shared/ts/src/gen/cli.ts --check
+  pnpm --silent tbx gen --check
 
 verify-all: lint test gen-check

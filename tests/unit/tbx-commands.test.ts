@@ -1,4 +1,4 @@
-import { cp, mkdtemp } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -51,6 +51,56 @@ describe('tbx help', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('unknown tool "dmeo"');
     expect(result.stderr).toContain('demo');
+  });
+});
+
+async function pathWith(...binaries: string[]): Promise<{ path: string }> {
+  const dir = await mkdtemp(join(tmpdir(), 'tbx-bin-'));
+  for (const binary of binaries) await writeFile(join(dir, binary), '');
+  return { path: dir };
+}
+
+describe('tbx gen', () => {
+  it('gen writes every generated file and gen --check then passes', async () => {
+    const root = await fixtureRoot();
+    expect((await runTbx(['gen'], { root, ...NO_PATH })).code).toBe(0);
+    expect(await readFile(join(root, 'tools/demo/README.md'), 'utf8')).toContain('# demo');
+    const check = await runTbx(['gen', '--check', '--json'], { root, ...NO_PATH });
+    expect(check.code).toBe(0);
+    expect(JSON.parse(check.stdout)).toEqual([]);
+  });
+
+  it('gen --check exits 1 and names drifted files', async () => {
+    const root = await fixtureRoot();
+    await runTbx(['gen'], { root, ...NO_PATH });
+    await writeFile(join(root, 'tools/demo/README.md'), 'hand edit\n');
+    const result = await runTbx(['gen', '--check'], { root, ...NO_PATH });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('tools/demo/README.md');
+    const json = await runTbx(['gen', '--check', '--json'], { root, ...NO_PATH });
+    expect(JSON.parse(json.stdout)).toEqual(['tools/demo/README.md']);
+  });
+
+  it('gen refuses a tool whose alias shadows a PATH binary', async () => {
+    const root = await fixtureRoot();
+    const result = await runTbx(['gen'], { root, ...(await pathWith('dm')) });
+    expect(result.code).toBe(78);
+    expect(result.stderr).toContain('"dm" collides');
+    await expect(readFile(join(root, 'tools/demo/README.md'))).rejects.toThrow();
+    expect((await runTbx(['gen', '--check'], { root, ...(await pathWith('dm')) })).code).toBe(78);
+  });
+
+  it('gen refuses two tools that share a name or alias', async () => {
+    const root = await fixtureRoot();
+    await mkdir(join(root, 'tools/other'));
+    const demo = await readFile(join(root, 'tools/demo/tool.toml'), 'utf8');
+    await writeFile(
+      join(root, 'tools/other/tool.toml'),
+      demo.replace('name = "demo"', 'name = "other"'),
+    );
+    const result = await runTbx(['gen'], { root, ...NO_PATH });
+    expect(result.code).toBe(78);
+    expect(result.stderr).toContain('"dm" collides');
   });
 });
 
