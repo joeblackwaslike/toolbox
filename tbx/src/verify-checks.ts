@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compareText } from '../../shared/ts/src/gen/files.ts';
 import { findOnPath } from '../../shared/ts/src/paths.ts';
-import { runOpen } from '../../shared/ts/src/run.ts';
-import { withVariable } from './state.ts';
+import { runBounded, runOpen } from '../../shared/ts/src/run.ts';
+import { type Env, withVariable } from './state.ts';
 import type { Lang } from './templates.ts';
 
 /** How one verify step ended; `detail` says why it failed or was skipped. */
@@ -28,6 +28,20 @@ const TEST_FILES: Record<Lang, RegExp> = {
   sh: /\.bats$/,
 };
 const SHELL_FILES = /\.(sh|bash)$/;
+const CACHE_LOOKUP_TIMEOUT_MS = 30_000;
+const HOME_VARIABLES = [
+  'HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_STATE_HOME',
+  'XDG_CACHE_HOME',
+  'TBX_BIN_DIR',
+];
+const CACHE_LOOKUPS: [string, string, string[]][] = [
+  ['UV_CACHE_DIR', 'uv', ['cache', 'dir']],
+  ['UV_PYTHON_INSTALL_DIR', 'uv', ['python', 'dir']],
+  ['BUN_INSTALL_CACHE_DIR', 'bun', ['pm', 'cache']],
+];
 
 /** Last `DETAIL_LINES` lines of `text`, trimmed. */
 export function tail(text: string): string {
@@ -197,12 +211,48 @@ async function venvPython(root: string): Promise<string> {
   return result.stdout.trim() || 'python3';
 }
 
-/** Runs `tests/unit` of a tool with its language's runner; no unit test file is a failure. */
-export async function unitStep(root: string, name: string, lang: Lang): Promise<StepOutcome> {
+async function hostOutput(command: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await runBounded(command, args, { timeoutMs: CACHE_LOOKUP_TIMEOUT_MS });
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The environment unit tests run in: the host environment (the runners need its PATH and
+ * toolchains) with `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`,
+ * `XDG_CACHE_HOME` and `TBX_BIN_DIR` taken from `isolated`, so tool code under test never sees
+ * the real home. `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR` and `BUN_INSTALL_CACHE_DIR` are
+ * resolved from the host first (its own value, else `uv cache dir`, `uv python dir`,
+ * `bun pm cache`) so uv and bun keep using their caches under the new HOME.
+ */
+export async function unitTestEnv(isolated: Env): Promise<NodeJS.ProcessEnv> {
+  let env: Env = { ...process.env };
+  for (const [name, command, args] of CACHE_LOOKUPS) {
+    const value = process.env[name] ?? (await hostOutput(command, args));
+    if (value !== '') env = withVariable(env, name, value);
+  }
+  for (const name of HOME_VARIABLES) env = withVariable(env, name, isolated[name] ?? '');
+  return { ...env };
+}
+
+/**
+ * Runs `tests/unit` of a tool with its language's runner in `env` (see `unitTestEnv`); no unit
+ * test file is a failure.
+ */
+export async function unitStep(
+  root: string,
+  name: string,
+  lang: Lang,
+  env: NodeJS.ProcessEnv,
+): Promise<StepOutcome> {
   const dir = `tools/${name}/tests/unit`;
   const files = await testFiles(root, name, lang, 'unit');
   if (files.length === 0) {
     return { status: 'fail', detail: `no unit tests in ${dir}` };
   }
-  return outcomeOf(await runChecks(root, [await testCommand(root, lang, dir)]));
+  const command = await testCommand(root, lang, dir);
+  return outcomeOf(await runChecks(root, [{ ...command, env }]));
 }

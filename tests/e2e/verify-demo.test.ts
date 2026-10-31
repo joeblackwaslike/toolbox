@@ -70,6 +70,19 @@ beforeAll(async () => {
   await fixtures.elsewhere('v-unit');
   await fixtures.passing('v-here', 'sh');
   await fixtures.manifest('v-here', '[unit]\nkind = "daemon"\nrunAtLoad = true');
+  await fixtures.passing('v-home', 'sh');
+  await appendFile(
+    fixtures.tool('v-home', 'tests/unit/v-home.bats'),
+    [
+      '',
+      '@test "unit tests run with an isolated HOME and XDG directories" {',
+      '  [[ "$HOME" == */tbx-verify-*/home ]]',
+      '  [[ "$XDG_CONFIG_HOME" == "$HOME/.config" ]]',
+      '  [[ "$TBX_BIN_DIR" == "$HOME/.local/share/tbx/bin" ]]',
+      '}',
+      '',
+    ].join('\n'),
+  );
   await fixtures.regenerate();
   await appendFile(fixtures.tool('v-drift', 'README.md'), '\nA hand edit.\n');
   await appendFile(fixtures.tool('v-bad', 'README.md'), '\nA hand edit.\n');
@@ -84,6 +97,15 @@ describe('verifyTool', () => {
       expect(statuses(report), explain(report)).toEqual(ALL_PASS);
       expect(detailOf(report, 'units')).toBe('no unit');
       expect(report.ok).toBe(true);
+    },
+    VERIFY_TIMEOUT_MS,
+  );
+
+  it(
+    'unit tests see an isolated HOME and XDG directories, never the real ones',
+    async () => {
+      const report = await verifyTool(fixtures.root, 'v-home');
+      expect(statuses(report), explain(report)).toEqual(ALL_PASS);
     },
     VERIFY_TIMEOUT_MS,
   );

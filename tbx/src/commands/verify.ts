@@ -8,7 +8,7 @@ import { tbxBinDir } from '../../../shared/ts/src/paths.ts';
 import type { TbxContext } from '../context.ts';
 import { type IsolatedEnv, createIsolatedEnv } from '../isolated-env.ts';
 import { CURRENT_PLATFORM } from '../stage.ts';
-import { type StepOutcome, lintStep, unitStep } from '../verify-checks.ts';
+import { type StepOutcome, lintStep, unitStep, unitTestEnv } from '../verify-checks.ts';
 import {
   type Installed,
   contractStep,
@@ -91,6 +91,15 @@ async function manifestOf(root: string, name: string): Promise<ToolManifest> {
   return m;
 }
 
+async function isolatedUnitStep(root: string, m: ToolManifest): Promise<StepOutcome> {
+  const isolated = await createIsolatedEnv();
+  try {
+    return await unitStep(root, m.name, m.language, await unitTestEnv(isolated.env));
+  } finally {
+    await isolated.cleanup();
+  }
+}
+
 function skipped(detail: string): StepOutcome {
   return { status: 'skipped', detail };
 }
@@ -127,8 +136,9 @@ async function againstCandidate(
 }
 
 /**
- * Runs the done gate for `tools/<name>` under `root`, every step even after a failure: lint and
- * unit tests in the host environment, then a build of the checkout into a temp release index,
+ * Runs the done gate for `tools/<name>` under `root`, every step even after a failure: lint in
+ * the host environment, unit tests in the host environment with HOME and the XDG directories
+ * moved into their own `createIsolatedEnv()` tree (see `unitTestEnv`), then a build of the checkout into a temp release index,
  * installed into a fresh `createIsolatedEnv()`, against which drift (generated files and the
  * `--help --json` interface), contract, e2e and units run. Contract and e2e are skipped when
  * the build or install fails (drift then fails, since the interface cannot be checked); unit
@@ -146,7 +156,7 @@ export async function verifyTool(
   const supported = m.platforms.includes(CURRENT_PLATFORM);
   const lint = await lintStep(root, name, m.language);
   const unit = supported
-    ? await unitStep(root, name, m.language)
+    ? await isolatedUnitStep(root, m)
     : skipped(`${name} does not run on ${CURRENT_PLATFORM}`);
   const isolated = await createIsolatedEnv();
   let rest: StepOutcome[];
