@@ -1,0 +1,13 @@
+#!/usr/bin/env bats
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  TOOL="${BATS_TEST_DIRNAME}/../../src/{{name}}"
+}
+
+@test "{{name}} prints its result as JSON" {
+  run --separate-stderr bash "$TOOL" --json
+  [ "$status" -eq 0 ]
+  [ "$output" = '"replace with what {{name}} prints"' ]
+}

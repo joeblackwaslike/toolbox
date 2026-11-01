@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both legs are arm64. x64 is not covered here.
+        os: [macos-15, ubuntu-24.04-arm]
+    env:
+      CI: "1"
+      HUSKY: "0"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install shell tooling (macOS, brew)
+        if: runner.os == 'macOS'
+        run: brew install bats-core shellcheck jq
+
+      - name: Install shell tooling (Linux, apt)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bats shellcheck jq
+
+      # shfmt output differs between releases (Ubuntu 24.04 apt ships 3.8.0, Homebrew is newer),
+      # so both legs use the same pinned release binary and `shfmt -d` agrees across them.
+      - name: Install shfmt (pinned v3.14.1, both OS)
+        env:
+          SHFMT_VERSION: v3.14.1
+        run: |
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-ARM64) asset=linux_arm64 sha=5f2db09dae91fca848f7adbdd014632e921a383863a2ad7e0450ad3aba0c6489 ;;
+            macOS-ARM64) asset=darwin_arm64 sha=b7c872db63553ccffc7253aba3ed7d4885a27d83f1ba567b1138c6315a5847e5 ;;
+            *) echo "no pinned shfmt for ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
+          esac
+          dir="${RUNNER_TEMP}/shfmt"
+          mkdir -p "$dir"
+          curl -fsSLo "$dir/shfmt" "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_${asset}"
+          echo "${sha}  $dir/shfmt" | shasum -a 256 -c -
+          chmod +x "$dir/shfmt"
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Set up pnpm (version from packageManager)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node (version from .nvmrc)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Set up Bun (version from .bun-version)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Set up uv (Python from .python-version)
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Check generated files for drift (just gen-check)
+        run: just gen-check
+
+      - name: Lint (just lint)
+        run: just lint
+
+      - name: Test (just test)
+        run: just test
+
+      - name: Verify every tool (tbx verify --all)
+        run: pnpm tbx verify --all

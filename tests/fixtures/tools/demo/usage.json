@@ -1,0 +1,70 @@
+{
+  "name": "demo",
+  "alias": "dm",
+  "summary": "Demo tool for parser and generator tests",
+  "version": "0.1.0",
+  "usage": "demo [options] <src> [dest]",
+  "args": [
+    {
+      "name": "src",
+      "summary": "Input file",
+      "required": true
+    },
+    {
+      "name": "dest",
+      "summary": "Output file",
+      "required": false
+    }
+  ],
+  "options": [
+    {
+      "long": "verbose",
+      "short": "v",
+      "summary": "Print progress",
+      "type": "bool",
+      "default": null
+    },
+    {
+      "long": "mode",
+      "short": "m",
+      "summary": "Processing mode",
+      "type": "string",
+      "default": "fast"
+    },
+    {
+      "long": "count",
+      "short": null,
+      "summary": "Number of passes",
+      "type": "int",
+      "default": null
+    },
+    {
+      "long": "inputs",
+      "short": "i",
+      "summary": "Extra input list, named next to the built-in --no-input",
+      "type": "string",
+      "default": null
+    },
+    {
+      "long": "no-input",
+      "short": "y",
+      "summary": "Disable all prompts",
+      "type": "bool",
+      "default": null
+    },
+    {
+      "long": "json",
+      "short": null,
+      "summary": "Print machine-readable JSON to stdout",
+      "type": "bool",
+      "default": null
+    },
+    {
+      "long": "help",
+      "short": "h",
+      "summary": "Show help, as JSON with --json",
+      "type": "bool",
+      "default": null
+    }
+  ]
+}

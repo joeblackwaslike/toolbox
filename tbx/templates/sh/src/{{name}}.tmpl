@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# @file {{name}}
+# @brief Entry point for {{name}}.
+# @description
+#   A build prepends shared/sh/lib.sh and the generated parser. Run from the checkout, this
+#   file loads both itself.
+
+if ! declare -F _tbx_parse >/dev/null; then
+  root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+  # shellcheck source=/dev/null
+  source "$root/shared/sh/lib.sh"
+  prelude=$(bun "$root/shared/sh/print-parser.ts" "$root/tools/{{name}}/tool.toml") || exit 1
+  eval "$prelude"
+fi
+
+tbx_result "{{name}}"

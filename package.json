@@ -1,0 +1,62 @@
+{
+  "name": "tbx-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Modular CLI toolbox workspace",
+  "scripts": {
+    "tbx": "bun tbx/src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome ci . && eslint shared/ts shared/sh tbx tools --max-warnings=0 --no-error-on-unmatched-pattern",
+    "lint:fix": "biome check --write . && eslint --fix shared/ts shared/sh tbx tools --no-error-on-unmatched-pattern",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "commit": "cz",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "esbuild": "^0.25.0",
+    "smol-toml": "^1.4.0",
+    "typescript": "^5.8.3",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "commitizen": "^4.3.1",
+    "cz-conventional-changelog": "^3.3.0",
+    "eslint": "^9.28.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.12.2",
+    "eslint-plugin-no-secrets": "^1.1.2",
+    "eslint-plugin-sonarjs": "^3.0.2",
+    "eslint-plugin-unicorn": "^56.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "typescript-eslint": "^8.32.1",
+    "vitest": "^3.0.0"
+  },
+  "author": "Joe Black <me@joeblack.nyc>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
+  },
+  "packageManager": "pnpm@11.0.8",
+  "lint-staged": {
+    "*.{ts,js,json,md}": [
+      "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
+    ],
+    "*.ts": ["eslint --fix --max-warnings=0 --no-warn-ignored"]
+  }
+}

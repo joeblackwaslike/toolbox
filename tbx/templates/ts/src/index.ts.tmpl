@@ -1,0 +1,6 @@
+import { defineTool } from '../../../shared/ts/src/cli.ts';
+import { parseManifest } from '../../../shared/ts/src/manifest.ts';
+import manifestToml from '../tool.toml' with { type: 'text' };
+import { run } from './run.ts';
+
+await defineTool(parseManifest(manifestToml), run);

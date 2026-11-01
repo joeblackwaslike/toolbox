@@ -1,0 +1,18 @@
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+ENTRY = Path(__file__).resolve().parents[2] / "src" / "{{ident}}.py"
+
+
+def test_prints_its_result_as_json() -> None:
+    proc = subprocess.run(
+        [sys.executable, str(ENTRY), "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == "replace with what {{name}} prints"
