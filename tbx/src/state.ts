@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { link, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { link, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { ExitCode, ToolError, isErrnoException, messageOf } from '../../shared/ts/src/errors.ts';
@@ -167,6 +167,8 @@ export interface LockHooks {
   beforeStaleClaim?: () => Promise<void>;
   /** Awaited after the lock file was created and before the body runs. */
   afterAcquire?: () => Promise<void>;
+  /** Awaited after the holder reread its own lock and before it removes it. */
+  beforeReleaseRemove?: () => Promise<void>;
 }
 
 const lockOwnerSchema = z.object({ pid: z.number().int(), createdAt: z.string() });
@@ -256,7 +258,7 @@ function mutexFileFor(file: string): string {
  * live installer has since replaced: the lock file itself is never renamed aside or restored, so
  * it never goes missing out from under a live owner, and no third process can slip into that gap.
  */
-async function claimStale(file: string, seen: string): Promise<void> {
+async function claimStale(file: string, seen: string): Promise<boolean> {
   const mutex = mutexFileFor(file);
   const mutexBody = JSON.stringify({
     pid: process.pid,
@@ -264,8 +266,8 @@ async function claimStale(file: string, seen: string): Promise<void> {
     token: randomBytes(TOKEN_BYTES).toString('hex'),
   });
   if (!(await tryAcquireHeld(mutex, mutexBody))) {
-    await clearDeadMutex(mutex);
-    return;
+    await clearStaleMutex(mutex);
+    return false;
   }
   try {
     if ((await readIfExists(file)) === seen) await rm(file, { force: true });
@@ -273,30 +275,63 @@ async function claimStale(file: string, seen: string): Promise<void> {
     HELD_LOCKS.delete(mutexBody);
     await release(mutex, mutexBody);
   }
+  return true;
+}
+
+async function mutexAgeMs(mutex: string, raw: string): Promise<number> {
+  const owner = parseOwner(raw);
+  const created = Date.parse(owner?.createdAt ?? '');
+  if (!Number.isNaN(created)) return Date.now() - created;
+  const info = await stat(mutex);
+  return Date.now() - info.mtimeMs;
 }
 
 /**
- * Removes the takeover mutex if its own owner is dead and the mutex is older than
- * `TAKEOVER_STALE_MS`, so a crash while holding it cannot wedge every future install.
+ * Removes the takeover mutex once it is older than `TAKEOVER_STALE_MS`, whatever its pid or
+ * content (its `createdAt`, or the file's mtime when the body does not parse), and only if it is
+ * unchanged since it was read. A live taker holds it for milliseconds, so an old one belongs to a
+ * crashed taker, possibly with its pid since reused. A fresh one is never cleared early.
  */
-async function clearDeadMutex(mutex: string): Promise<void> {
-  const seen = await readOwner(mutex);
-  if (seen?.owner == null || isLive(seen.owner, seen.raw)) return;
-  if (Date.now() - new Date(seen.owner.createdAt).getTime() < TAKEOVER_STALE_MS) return;
+async function clearStaleMutex(mutex: string): Promise<void> {
+  // ponytail: two waiters can read the same old mutex; one clears it and claims a fresh one, then the other's rm deletes that fresh live mutex. Needs a crashed taker plus a tight interleaving; worst case is two critical sections once, and since versions are immutable and state writes are atomic that means one lost installed.json update, fixed by reinstalling. A rename-based compare-and-delete would close it.
   try {
-    if ((await readIfExists(mutex)) === seen.raw) await rm(mutex, { force: true });
-  } catch {
-    // another waiter is already clearing or holding it; leave it alone
+    const raw = await readIfExists(mutex);
+    if (raw === null || (await mutexAgeMs(mutex, raw)) < TAKEOVER_STALE_MS) return;
+    if ((await readIfExists(mutex)) === raw) await rm(mutex, { force: true });
+  } catch (error) {
+    if (!isMissing(error)) throw error;
   }
 }
 
-async function removeIfStale(file: string, hooks: LockHooks): Promise<LockOwner | null> {
+type StaleCheck =
+  | { kind: 'live'; owner: LockOwner }
+  | { kind: 'claimed' }
+  | { kind: 'busy'; mutex: string };
+
+async function removeIfStale(file: string, hooks: LockHooks): Promise<StaleCheck> {
   const seen = await readOwner(file);
-  if (seen === null) return null;
-  if (seen.owner !== null && isLive(seen.owner, seen.raw)) return seen.owner;
+  if (seen === null) return { kind: 'claimed' };
+  if (seen.owner !== null && isLive(seen.owner, seen.raw))
+    return { kind: 'live', owner: seen.owner };
   await hooks.beforeStaleClaim?.();
-  await claimStale(file, seen.raw);
-  return null;
+  return (await claimStale(file, seen.raw))
+    ? { kind: 'claimed' }
+    : { kind: 'busy', mutex: mutexFileFor(file) };
+}
+
+function timeoutError(
+  check: Exclude<StaleCheck, { kind: 'claimed' }>,
+  file: string,
+  timeoutMs: number,
+): ToolError {
+  const holder =
+    check.kind === 'live'
+      ? `another tbx install is running (pid ${check.owner.pid}, since ${check.owner.createdAt})`
+      : `another tbx install is taking over a stale lock (${check.mutex})`;
+  return new ToolError(
+    `${holder}; waited ${timeoutMs} ms for ${file}. Remove it if no tbx process is running.`,
+    ExitCode.unavailable,
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -314,22 +349,19 @@ async function acquire(file: string, timeoutMs: number, hooks: LockHooks): Promi
   let wait = LOCK_POLL_START_MS;
   for (;;) {
     if (await tryAcquireHeld(file, body)) return body;
-    const owner = await removeIfStale(file, hooks);
-    if (owner === null) continue;
-    if (Date.now() >= deadline) {
-      throw new ToolError(
-        `another tbx install is running (pid ${owner.pid}, since ${owner.createdAt}); waited ${timeoutMs} ms for ${file}. Remove it if no tbx process is running.`,
-        ExitCode.unavailable,
-      );
-    }
+    const check = await removeIfStale(file, hooks);
+    if (check.kind === 'claimed') continue;
+    if (Date.now() >= deadline) throw timeoutError(check, file, timeoutMs);
     await sleep(Math.min(wait, Math.max(deadline - Date.now(), 1)));
     wait = Math.min(wait * 2, LOCK_POLL_MAX_MS);
   }
 }
 
-async function release(file: string, mine: string): Promise<void> {
+async function release(file: string, mine: string, hooks: LockHooks = {}): Promise<void> {
   try {
-    if ((await readIfExists(file)) === mine) await rm(file, { force: true });
+    if ((await readIfExists(file)) !== mine) return;
+    await hooks.beforeReleaseRemove?.();
+    await rm(file, { force: true });
   } catch {
     return;
   }
@@ -343,7 +375,9 @@ async function release(file: string, mine: string): Promise<void> {
  * short-lived takeover mutex (the same atomic hard-link primitive, at `file.takeover`): the
  * holder rereads the lock and deletes it only if it still has the exact dead-owner content it
  * saw before claiming the mutex, so a delayed waiter can never delete a lock a live installer
- * has since replaced. The lock itself is never renamed aside or restored. A lock carrying this
+ * has since replaced. The lock itself is never renamed aside or restored. While another waiter
+ * holds the takeover mutex the caller backs off and still honours `timeoutMs`; a mutex older than
+ * `TAKEOVER_STALE_MS` (5 s) is cleared whatever its pid or content. A lock carrying this
  * process's own pid counts as stale unless a body in this process holds it. The lock is removed
  * afterwards only if it is still ours; a failure while removing it never replaces the result or
  * error of `body` (a lock left behind holds a pid that is no longer running, so the next caller
@@ -363,7 +397,7 @@ export async function withLock<T>(
     await hooks.afterAcquire?.();
     return await body();
   } finally {
+    await release(file, mine, hooks);
     HELD_LOCKS.delete(mine);
-    await release(file, mine);
   }
 }

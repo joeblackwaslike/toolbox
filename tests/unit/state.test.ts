@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ToolError } from '../../shared/ts/src/errors.ts';
 import { tbxPaths, withLock } from '../../tbx/src/state.ts';
 
 function deadPid(): number {
@@ -59,10 +60,13 @@ describe('withLock', () => {
     );
     await Promise.all([first, second]);
     expect(maxActive).toBe(1);
-    expect((await readdir(dirname(file))).filter((name) => name.includes('stale'))).toEqual([]);
+    const leftovers = (await readdir(dirname(file))).filter((name) =>
+      /\.takeover|\.tmp$/.test(name),
+    );
+    expect(leftovers).toEqual([]);
   });
 
-  it('a waiter that read a stale lock before a takeover cannot delete the live lock that replaced it', async () => {
+  it('keeps one holder at a time when waiter A resumes its stale claim after B took over and C waits', async () => {
     const file = await staleLock();
     let active = 0;
     let maxActive = 0;
@@ -108,8 +112,6 @@ describe('withLock', () => {
     });
     await bReachedAcquire;
 
-    // A resumes with a stale `seen` it captured before B's takeover; it must recheck under the
-    // takeover mutex and find B's live lock instead, so C below must still block on B.
     resumeA();
     const c = withLock(file, () => run('C'), 3000);
 
@@ -118,8 +120,6 @@ describe('withLock', () => {
     await Promise.all([a, b, c]);
 
     expect(maxActive).toBe(1);
-    // B's live lock must survive A's stale claim entirely: B runs to completion before either
-    // A or C (which race for the lock only after B releases) gets a turn.
     expect(order.slice(0, 2)).toEqual(['B start', 'B end']);
     expect(new Set(order)).toEqual(
       new Set(['A start', 'A end', 'B start', 'B end', 'C start', 'C end']),
@@ -145,6 +145,120 @@ describe('withLock', () => {
         await chmod(lockDir, 0o755);
       }
     },
+  );
+});
+
+const HARD_DEADLINE_MS = 3000;
+const SHORT_TIMEOUT_MS = 500;
+const AGED_MS = 10_000;
+
+async function stalledTakeover(mutexBody: string, ageMs = 0): Promise<string> {
+  const file = await staleLock();
+  const mutex = `${file}.takeover`;
+  await writeFile(mutex, mutexBody);
+  if (ageMs > 0) {
+    const then = new Date(Date.now() - ageMs);
+    await utimes(mutex, then, then);
+  }
+  return file;
+}
+
+function mutexOwner(pid: number, ageMs: number): string {
+  return JSON.stringify({ pid, createdAt: new Date(Date.now() - ageMs).toISOString(), token: 't' });
+}
+
+describe('a takeover mutex left behind', () => {
+  it(
+    'a fresh mutex from a dead pid makes acquire time out at timeoutMs, without spinning',
+    async () => {
+      const file = await stalledTakeover(mutexOwner(deadPid(), 0));
+      const started = Date.now();
+      const error = await withLock(file, () => Promise.resolve(), SHORT_TIMEOUT_MS).catch(
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(ToolError);
+      expect(error).toMatchObject({ code: 69 });
+      expect(Date.now() - started).toBeLessThan(SHORT_TIMEOUT_MS + 1000);
+    },
+    HARD_DEADLINE_MS,
+  );
+
+  it(
+    'a mutex older than the stale age is cleared even when its pid is alive',
+    async () => {
+      const file = await stalledTakeover(mutexOwner(1, AGED_MS), AGED_MS);
+      await expect(withLock(file, () => Promise.resolve('ran'), SHORT_TIMEOUT_MS)).resolves.toBe(
+        'ran',
+      );
+      expect(await readdir(dirname(file))).toEqual([]);
+    },
+    HARD_DEADLINE_MS,
+  );
+
+  it(
+    'a mutex with unparseable content older than the stale age is cleared',
+    async () => {
+      const file = await stalledTakeover('not json', AGED_MS);
+      await expect(withLock(file, () => Promise.resolve('ran'), SHORT_TIMEOUT_MS)).resolves.toBe(
+        'ran',
+      );
+      expect(await readdir(dirname(file))).toEqual([]);
+    },
+    HARD_DEADLINE_MS,
+  );
+
+  it(
+    'a fresh mutex with unparseable content makes acquire time out instead of hanging',
+    async () => {
+      const file = await stalledTakeover('not json');
+      await expect(withLock(file, () => Promise.resolve(), SHORT_TIMEOUT_MS)).rejects.toMatchObject(
+        {
+          code: 69,
+        },
+      );
+    },
+    HARD_DEADLINE_MS,
+  );
+});
+
+describe('releasing the lock', () => {
+  it(
+    'a same-process waiter cannot take over while the holder is removing its lock',
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
+      const file = join(dir, 'install.lock');
+      let resumeA: () => void = () => undefined;
+      const aPaused = new Promise<void>((resolve) => {
+        resumeA = resolve;
+      });
+      let aAtRelease: () => void = () => undefined;
+      const aReachedRelease = new Promise<void>((resolve) => {
+        aAtRelease = resolve;
+      });
+      const a = withLock(file, () => Promise.resolve(), 3000, {
+        beforeReleaseRemove: async () => {
+          aAtRelease();
+          await aPaused;
+        },
+      });
+      let lockDuringB: string | null = null;
+      const bStarted = aReachedRelease.then(() =>
+        withLock(
+          file,
+          async () => {
+            await a;
+            lockDuringB = await readFile(file, 'utf8').catch(() => null);
+          },
+          3000,
+        ),
+      );
+      await aReachedRelease;
+      await delay(300);
+      resumeA();
+      await Promise.all([a, bStarted]);
+      expect(lockDuringB).not.toBeNull();
+    },
+    HARD_DEADLINE_MS,
   );
 });
 
