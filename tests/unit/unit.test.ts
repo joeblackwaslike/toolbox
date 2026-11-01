@@ -260,7 +260,7 @@ describe('validateUnit bounds', () => {
     'a %s validator that hangs fails at the limit instead of hanging',
     async (kind, tool) => {
       const dir = await mkdtemp(join(tmpdir(), 'tbx-slow-'));
-      await writeFile(join(dir, tool), '#!/bin/sh\nsleep 30\n');
+      await writeFile(join(dir, tool), '#!/bin/sh\nsleep 10\n');
       await chmod(join(dir, tool), 0o755);
       process.env.PATH = [dir, originalPath ?? ''].join(delimiter);
       const started = Date.now();

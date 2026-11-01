@@ -8,6 +8,24 @@ import {
 } from '../../shared/ts/src/run.ts';
 
 const SHORT_LIMIT_MS = 200;
+const RETURN_SLACK_MS = 1500;
+const HARD_DEADLINE_MS = 5000;
+const ESCAPED_HOLDER = [
+  "perl -e 'use POSIX; pipe(my $r, my $w); my $pid = fork;",
+  'if ($pid) { close $w; <$r>; print "escaped $pid\\n"; exit 0 }',
+  "close $r; POSIX::setsid(); close $w; exec q(sleep), q(30)'",
+].join(' ');
+
+function killEscaped(stdout: string): void {
+  const pid = Number(/escaped (\d+)/.exec(stdout)?.[1]);
+  if (Number.isInteger(pid) && pid > 1) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      return;
+    }
+  }
+}
 const QUICK_MS = 5000;
 
 afterEach(() => {
@@ -54,6 +72,48 @@ describe('runOpen', () => {
     });
     expect(result).toMatchObject({ truncated: true, timedOut: false });
     expect(result.stdout.length).toBe(1000);
+  });
+
+  it(
+    'returns at the timeout even when an escaped process keeps the pipes open',
+    async () => {
+      const started = Date.now();
+      const result = await runOpen('sh', ['-c', `${ESCAPED_HOLDER}; echo before; sleep 30`], {
+        closeStdin: true,
+        timeoutMs: SHORT_LIMIT_MS,
+      });
+      killEscaped(result.stdout);
+      expect(result).toMatchObject({ timedOut: true, status: null });
+      expect(Date.now() - started).toBeLessThan(SHORT_LIMIT_MS + RETURN_SLACK_MS);
+      expect(result.stdout).toContain('before');
+    },
+    HARD_DEADLINE_MS,
+  );
+
+  it(
+    'returns after an output-cap kill even when an escaped process keeps the pipes open',
+    async () => {
+      const started = Date.now();
+      const result = await runOpen(
+        'sh',
+        ['-c', `${ESCAPED_HOLDER}; while :; do echo aaaaaaaaaaaaaaaa; done`],
+        { closeStdin: true, timeoutMs: QUICK_MS, maxCaptureBytes: 4000 },
+      );
+      killEscaped(result.stdout);
+      expect(result).toMatchObject({ truncated: true, timedOut: false });
+      expect(Date.now() - started).toBeLessThan(RETURN_SLACK_MS * 2);
+    },
+    HARD_DEADLINE_MS,
+  );
+
+  it('still returns every byte of a command that exits normally', async () => {
+    const result = await runOpen('sh', ['-c', 'yes 0123456789 | head -c 300000; echo done >&2'], {
+      closeStdin: true,
+      timeoutMs: QUICK_MS,
+    });
+    expect(result).toMatchObject({ status: 0, timedOut: false, truncated: false });
+    expect(result.stdout).toHaveLength(300_000);
+    expect(result.stderr).toBe('done\n');
   });
 
   it('keeps the default cap at 8 MiB', () => {

@@ -69,6 +69,18 @@ export interface RunOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * Extra group kills after the first, for a child the group was forking at that moment (on macOS
+ * it may not be in the group yet).
+ */
+const FIRST_RESWEEP_MS = 25;
+const SECOND_RESWEEP_MS = 75;
+const RESWEEP_DELAYS_MS = [FIRST_RESWEEP_MS, SECOND_RESWEEP_MS];
+/**
+ * How long a killed command's pipes may stay open after it exits before the call returns anyway
+ * (an escaped grandchild can hold them).
+ */
+const KILLED_EXIT_GRACE_MS = 100;
 const MS_PER_SECOND = 1000;
 
 /**
@@ -89,8 +101,11 @@ export function signalGroup(pid: number | undefined, signal: NodeJS.Signals): vo
  * Runs a command with stdin left open as a non-TTY pipe (unless `closeStdin`), so a command
  * that tries to prompt hangs and is killed after `timeoutMs` instead of reading EOF. The command
  * runs in its own process group and the timeout kills the whole group, so children holding its
- * output open cannot keep the call waiting. Output past `maxCaptureBytes` is dropped and the
- * group is killed (`truncated: true`). Lookup of `command` uses the `PATH` in `env`.
+ * output open cannot keep the call waiting: the group is killed again 25 and 75 ms later to catch
+ * a child it was forking, and once a killed command has exited the call returns within 100 ms
+ * even if some escaped process still holds its pipes. Output past `maxCaptureBytes` is dropped and
+ * the group is killed the same way (`truncated: true`). A command that exits on its own is read to
+ * the end of its output. Lookup of `command` uses the `PATH` in `env`.
  *
  * @throws {Error} when the command cannot be started.
  */
@@ -107,27 +122,52 @@ export function runOpen(
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
+    let killed = false;
+    let settled = false;
+    const timers: NodeJS.Timeout[] = [];
+    const killGroup = (): void => {
+      killed = true;
       signalGroup(child.pid, 'SIGKILL');
-    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+      for (const delay of RESWEEP_DELAYS_MS) {
+        const sweep = setTimeout(() => {
+          signalGroup(child.pid, 'SIGKILL');
+        }, delay);
+        timers.push(sweep.unref());
+      }
+    };
+    timers.push(
+      setTimeout(() => {
+        timedOut = true;
+        killGroup();
+      }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    );
     const captured = captureOutput(
       [child.stdout, child.stderr],
       options.maxCaptureBytes ?? MAX_CAPTURE_BYTES,
-      () => {
-        signalGroup(child.pid, 'SIGKILL');
-      },
+      killGroup,
     );
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', (status, signal) => {
-      clearTimeout(timer);
+    const finish = (status: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return;
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
       child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
       const [stdout = '', stderr = ''] = captured.texts;
       resolve({ status, stdout, stderr, timedOut, signal, truncated: captured.truncated });
+    };
+    child.on('error', (error) => {
+      for (const timer of timers) clearTimeout(timer);
+      reject(error);
     });
+    child.on('exit', (status, signal) => {
+      if (!killed) return;
+      const grace = setTimeout(() => {
+        finish(status, signal);
+      }, KILLED_EXIT_GRACE_MS);
+      timers.push(grace);
+    });
+    child.on('close', finish);
     if (options.closeStdin === true) child.stdin.end();
   });
 }

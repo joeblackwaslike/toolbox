@@ -75,8 +75,11 @@ function runOpen( command: string, args: readonly string[], options: RunOptions 
 Runs a command with stdin left open as a non-TTY pipe (unless `closeStdin`), so a command
 that tries to prompt hangs and is killed after `timeoutMs` instead of reading EOF. The command
 runs in its own process group and the timeout kills the whole group, so children holding its
-output open cannot keep the call waiting. Output past `maxCaptureBytes` is dropped and the
-group is killed (`truncated: true`). Lookup of `command` uses the `PATH` in `env`.
+output open cannot keep the call waiting: the group is killed again 25 and 75 ms later to catch
+a child it was forking, and once a killed command has exited the call returns within 100 ms
+even if some escaped process still holds its pipes. Output past `maxCaptureBytes` is dropped and
+the group is killed the same way (`truncated: true`). A command that exits on its own is read to
+the end of its output. Lookup of `command` uses the `PATH` in `env`.
 
 - @throws {Error} when the command cannot be started.
 
