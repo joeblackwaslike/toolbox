@@ -106,6 +106,22 @@ describe('runOpen', () => {
     HARD_DEADLINE_MS,
   );
 
+  it(
+    'returns at the timeout when the command exits early but an escaped process keeps the pipes open',
+    async () => {
+      const started = Date.now();
+      const result = await runOpen('sh', ['-c', `${ESCAPED_HOLDER}; echo before; exit 0`], {
+        closeStdin: true,
+        timeoutMs: SHORT_LIMIT_MS,
+      });
+      killEscaped(result.stdout);
+      expect(result).toMatchObject({ timedOut: true, status: 0 });
+      expect(Date.now() - started).toBeLessThan(SHORT_LIMIT_MS + RETURN_SLACK_MS);
+      expect(result.stdout).toContain('before');
+    },
+    HARD_DEADLINE_MS,
+  );
+
   it('still returns every byte of a command that exits normally', async () => {
     const result = await runOpen('sh', ['-c', 'yes 0123456789 | head -c 300000; echo done >&2'], {
       closeStdin: true,

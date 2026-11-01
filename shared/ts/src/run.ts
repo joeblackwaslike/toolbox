@@ -103,9 +103,11 @@ export function signalGroup(pid: number | undefined, signal: NodeJS.Signals): vo
  * runs in its own process group and the timeout kills the whole group, so children holding its
  * output open cannot keep the call waiting: the group is killed again 25 and 75 ms later to catch
  * a child it was forking, and once a killed command has exited the call returns within 100 ms
- * even if some escaped process still holds its pipes. Output past `maxCaptureBytes` is dropped and
- * the group is killed the same way (`truncated: true`). A command that exits on its own is read to
- * the end of its output. Lookup of `command` uses the `PATH` in `env`.
+ * even if some escaped process still holds its pipes. This holds whichever order the kill and the
+ * exit happen in, including when the command exits on its own before `timeoutMs` while an escaped
+ * process is already holding its pipes. Output past `maxCaptureBytes` is dropped and the group is
+ * killed the same way (`truncated: true`). A command that exits on its own with no escaped holder
+ * is read to the end of its output. Lookup of `command` uses the `PATH` in `env`.
  *
  * @throws {Error} when the command cannot be started.
  */
@@ -124,7 +126,16 @@ export function runOpen(
     let timedOut = false;
     let killed = false;
     let settled = false;
+    let exited = false;
+    let exitStatus: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
     const timers: NodeJS.Timeout[] = [];
+    const armGrace = (): void => {
+      const grace = setTimeout(() => {
+        finish(exitStatus, exitSignal);
+      }, KILLED_EXIT_GRACE_MS);
+      timers.push(grace);
+    };
     const killGroup = (): void => {
       killed = true;
       signalGroup(child.pid, 'SIGKILL');
@@ -134,6 +145,7 @@ export function runOpen(
         }, delay);
         timers.push(sweep.unref());
       }
+      if (exited) armGrace();
     };
     timers.push(
       setTimeout(() => {
@@ -161,11 +173,10 @@ export function runOpen(
       reject(error);
     });
     child.on('exit', (status, signal) => {
-      if (!killed) return;
-      const grace = setTimeout(() => {
-        finish(status, signal);
-      }, KILLED_EXIT_GRACE_MS);
-      timers.push(grace);
+      exited = true;
+      exitStatus = status;
+      exitSignal = signal;
+      if (killed) armGrace();
     });
     child.on('close', finish);
     if (options.closeStdin === true) child.stdin.end();
