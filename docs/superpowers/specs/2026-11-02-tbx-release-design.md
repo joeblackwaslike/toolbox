@@ -15,10 +15,11 @@ A fresh macOS or Linux machine runs one `curl … | sh` line and gets `tbx` plus
 - A change under `shared/` or to the generator's shipped output releases every affected tool as a patch bump, with a hand override.
 - `tbx install` and `tbx update` read the release index from GitHub Releases, and still read a local index for tests.
 - Released versions are never rebuilt or overwritten.
+- The macOS binaries are signed with Joe's Developer ID certificate and notarized, so a binary downloaded from the Releases page in a browser runs without a Gatekeeper warning.
 
 ## Non-goals
 
-- Linux musl, Windows, and signing or notarizing the macOS binaries.
+- Linux musl and Windows.
 - The agent plugins, workflow skills and README (plan 2b).
 - Publishing to homebrew-core, apt or dnf repositories. The `.deb` and `.rpm` files are release assets only.
 - Replacing release-please with a custom release script.
@@ -72,7 +73,8 @@ CI also fails a pull request when its stamps are out of date, so contributors se
 1. `release-please` runs and exposes `releases_created` and per-path outputs.
 2. For each created tool release, a `tool-release` job builds that tool's tarball with `tbx build`, uploads it and its checksum to the release, and regenerates the release index.
 3. If `tbx-cli` was released, a `cli-release` job builds the four binaries (darwin-arm64, darwin-x64, linux-arm64, linux-x64, all glibc) with `bun build --compile --target …` from one Linux runner, using the Bun version in `.bun-version`. A matrix of `macos-15-intel` and `ubuntu-24.04` smoke-tests the x64 binaries (`tbx --version`, `tbx list`). The arm64 targets are smoke-tested on the arm64 runners. Only then does it upload the binaries, `checksums.txt`, and the `.deb` and `.rpm` files for both Linux architectures.
-4. After a smoke pass, publish jobs run in order: npm, PyPI, then the Homebrew formula. Each publish is idempotent, so a rerun after a partial failure skips channels that already have the version.
+4. A `sign-macos` job on a macOS runner signs both darwin binaries with the Developer ID Application certificate (hardened runtime, with the entitlements Bun's JIT needs), submits them to Apple with `notarytool`, and waits for acceptance. A bare binary cannot be stapled, so Gatekeeper checks the notarization ticket online on first run. Signing runs before the smoke test so the smoke test exercises the shipped bytes, and `checksums.txt` is computed after signing.
+5. After a smoke pass, publish jobs run in order: npm, PyPI, then the Homebrew formula. Each publish is idempotent, so a rerun after a partial failure skips channels that already have the version.
 
 Assets are uploaded with `--clobber` disabled, so an existing asset is never replaced. The one exception is `index.json`, which is replaced on every tool release. A single concurrency group, `release`, with `cancel-in-progress: false`, covers the whole workflow, so runs queue rather than interleave. Release-please creates non-draft releases, and `make_latest` is false for tool releases so they never take GitHub's repo-wide "latest" label.
 
@@ -100,6 +102,7 @@ This is new code, not a change of default. Today `tbx install` only reads artifa
 - npm: `NPM_TOKEN` for the first real release. Joe switches to a Trusted Publisher after that release, since npm can only configure one for an existing package, and the workflow then drops the token.
 - PyPI: Trusted Publisher, already set up.
 - Homebrew tap: a fine-grained token with contents write on `homebrew-tap` only, stored as `HOMEBREW_TAP_TOKEN`.
+- Signing: the Developer ID Application certificate and its password (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`) and an App Store Connect API key for `notarytool` (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`). The job imports the certificate into a temporary keychain that is deleted at the end of the job.
 - Everything else uses `GITHUB_TOKEN` with `contents: write` only in the jobs that upload assets.
 
 ### Failure handling
@@ -113,6 +116,7 @@ Release-please runs before anything is built, so a build failure leaves a tag wi
 - `index.json` is the one asset that may be replaced, and the workflow creates the `index` release if it is missing.
 - The installer finds `tbx-cli` by tag prefix through the releases API instead of GitHub's "latest" label.
 - The Homebrew formula comes from a template in this repo, and the step skips when the formula already has the version.
+- Signing and notarizing belong to this work, because Joe has a developer account. Notarization uses an App Store Connect API key, not an Apple ID password.
 - Four glibc binaries, with `.deb` and `.rpm` for both Linux architectures.
 - HTTP fetch, checksum verification and `tbx update` are part of this work.
 
@@ -130,12 +134,14 @@ Release-please runs before anything is built, so a build failure leaves a tag wi
 - That `bun build --compile --target` produces working binaries for all four targets from a Linux runner. Check before building the workflow.
 - That release-please's `toml` updater handles `tool.toml` as written, including the `[[args]]` tables.
 - That a `Release-As:` footer on a squash-merge commit is honored for a component release PR.
+- Whether a `bun build --compile` binary can be re-signed with a Developer ID identity and the hardened runtime, and which entitlements it needs to start (likely allow-jit and allow-unsigned-executable-memory). Check with a manual sign and notarize of one binary before wiring the job.
 - Whether the npm Trusted Publisher can be configured for a package whose first real version comes from the workflow.
 
 ## Human-only steps
 
 - Creating the fine-grained `HOMEBREW_TAP_TOKEN` and adding it as a secret needs Joe's login. Claude creates the `joeblackwaslike/homebrew-tap` repo itself.
 - Switching npm to a Trusted Publisher and deleting `NPM_TOKEN`.
+- Exporting the Developer ID Application certificate as a `.p12` and creating an App Store Connect API key (Joe's Apple login), then `gh secret set` for the five signing secrets.
 - Rotating the token in `~/bin/glm-claude`.
 
 ## Left to the builder
