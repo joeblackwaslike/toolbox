@@ -1,5 +1,6 @@
 import hashlib
 import http.server
+import importlib
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     body = STUB
     hits = 0
+    truncate = False
 
     def do_GET(self):
         """Serve the stub for release asset paths."""
@@ -28,6 +30,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         self.send_response(200)
+        if type(self).truncate:
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            self.wfile.write(b"short")
+            return
         self.end_headers()
         self.wfile.write(type(self).body)
 
@@ -35,23 +42,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Silence request logging."""
 
 
-@pytest.fixture
-def env(tmp_path):
-    sums = tmp_path / "checksums.txt"
+@pytest.fixture(scope="session")
+def rendered(tmp_path_factory):
+    work = tmp_path_factory.mktemp("render")
+    sums = work / "checksums.txt"
     digest = hashlib.sha256(STUB).hexdigest()
     sums.write_text("".join(f"{digest}  tbx-{a}\n" for a in ASSETS))
-    out = tmp_path / "out"
+    out = work / "out"
     subprocess.run(
         ["bash", str(ROOT / "scripts/render-packaging.sh"), VERSION, str(sums), str(out)],
         check=True,
     )
+    return out
+
+
+@pytest.fixture
+def env(tmp_path, rendered):
     Handler.body = STUB
     Handler.hits = 0
+    Handler.truncate = False
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield {
         **os.environ,
-        "PYTHONPATH": str(out / "pypi/src"),
+        "PYTHONPATH": str(rendered / "pypi/src"),
         "TBX_DOWNLOAD_BASE": f"http://127.0.0.1:{server.server_address[1]}",
         "XDG_CACHE_HOME": str(tmp_path / "cache"),
     }
@@ -101,3 +115,45 @@ def test_non_loopback_http_is_refused(env):
     r = run({**env, "TBX_DOWNLOAD_BASE": "http://example.com"}, "x")
     assert r.returncode != 0
     assert "https" in r.stderr.lower()
+
+
+def test_tampered_cached_binary_is_replaced_not_run(env):
+    assert run(env, "a").returncode == 0
+    (cached_file,) = cached(env)
+    cached_file.write_text("#!/bin/sh\necho TAMPERED\n")
+    Handler.hits = 0
+    r = run(env, "b")
+    assert r.stdout == "STUB-RAN b\n"
+    assert Handler.hits == 1
+    assert cached_file.read_bytes() == STUB
+
+
+def test_truncated_download_fails_cleanly(env):
+    Handler.truncate = True
+    r = run(env, "x")
+    assert r.returncode != 0
+    assert "Traceback" not in r.stderr
+    assert "download failed" in r.stderr
+    assert cached(env) == []
+
+
+def test_only_https_final_urls_or_loopback_http(rendered, monkeypatch):
+    monkeypatch.syspath_prepend(str(rendered / "pypi/src"))
+    is_allowed_url = importlib.import_module("tbx_cli").is_allowed_url
+
+    assert is_allowed_url("https://objects.githubusercontent.com/x")
+    assert is_allowed_url("http://127.0.0.1:8080/x")
+    assert not is_allowed_url("http://example.com/x")
+
+
+def test_unsupported_platform_and_musl_messages(rendered, monkeypatch, capsys):
+    monkeypatch.syspath_prepend(str(rendered / "pypi/src"))
+    asset_name = importlib.import_module("tbx_cli").asset_name
+
+    assert asset_name("linux", "aarch64", "glibc") == "tbx-linux-arm64"
+    with pytest.raises(SystemExit):
+        asset_name("win32", "AMD64", "")
+    assert "unsupported platform" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        asset_name("linux", "x86_64", "")
+    assert "musl" in capsys.readouterr().err

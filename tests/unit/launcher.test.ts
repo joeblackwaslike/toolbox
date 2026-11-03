@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { type Server, createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ let served = STUB;
 let hits = 0;
 let base: string;
 
+const nodeRequire = createRequire(join(ROOT, 'package.json'));
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 function render(name: string, content: string): string {
@@ -134,5 +136,58 @@ describe('npm launcher', () => {
   it('exits with the binary exit status', async () => {
     served = EXITING;
     expect((await run(render('exit', EXITING), [])).status).toBe(7);
+  });
+  it('replaces a tampered cached binary instead of running it', async () => {
+    const launcher = render('tampercache', STUB);
+    expect((await run(launcher, ['a'])).status).toBe(0);
+    const file = join(work, 'cache', 'tbx', VERSION, cached()[0] ?? '');
+    writeFileSync(file, '#!/bin/sh\necho TAMPERED\n');
+    hits = 0;
+    const r = await run(launcher, ['b']);
+    expect(r.stdout).toBe('STUB-RAN b\n');
+    expect(hits).toBe(1);
+    expect(readFileSync(file, 'utf8')).toBe(STUB);
+  });
+
+  it('forwards SIGTERM to the child and exits with the child status', async () => {
+    const trapping = `#!/bin/sh\necho $$ > "${join(work, 'child.pid')}"\ntrap 'echo TRAPPED' TERM\necho STARTED\nsleep 1\nexit 3\n`;
+    served = trapping;
+    const launcher = render('signal', trapping);
+    const child = spawn('node', [launcher], {
+      env: { ...process.env, TBX_DOWNLOAD_BASE: base, XDG_CACHE_HOME: join(work, 'cache') },
+    });
+    let stdout = '';
+    const started = new Promise<void>((resolve) => {
+      child.stdout.on('data', (d) => {
+        stdout += d;
+        if (stdout.includes('STARTED')) resolve();
+      });
+    });
+    const closed = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+      child.on('close', (code, signal) => resolve({ code, signal }));
+    });
+    await started;
+    child.kill('SIGTERM');
+    const end = await closed;
+    expect(stdout).toContain('TRAPPED');
+    expect(end).toEqual({ code: 3, signal: null });
+    const pid = Number(readFileSync(join(work, 'child.pid'), 'utf8'));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it('only allows https final URLs, or http on loopback', () => {
+    const { isAllowedUrl } = nodeRequire(render('url', STUB));
+    expect(isAllowedUrl('https://objects.githubusercontent.com/x')).toBe(true);
+    expect(isAllowedUrl('http://127.0.0.1:8080/x')).toBe(true);
+    expect(isAllowedUrl('http://example.com/x')).toBe(false);
+    expect(isAllowedUrl('not a url')).toBe(false);
+  });
+
+  it('names unsupported platforms and musl clearly', () => {
+    const { assetName } = nodeRequire(render('platform', STUB));
+    expect(assetName({ platform: 'linux', arch: 'arm64', musl: false })).toBe('tbx-linux-arm64');
+    expect(() => assetName({ platform: 'win32', arch: 'x64' })).toThrow(/unsupported platform/);
+    expect(() => assetName({ platform: 'linux', arch: 'ia32' })).toThrow(/unsupported platform/);
+    expect(() => assetName({ platform: 'linux', arch: 'x64', musl: true })).toThrow(/musl/);
   });
 });

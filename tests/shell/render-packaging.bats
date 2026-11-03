@@ -63,3 +63,17 @@ setup() {
   run "$SCRIPT" 1.2.3
   [ "$status" -ne 0 ]
 }
+
+@test "refuses an existing non-empty output directory" {
+  mkdir -p "$OUT"
+  touch "$OUT/keep"
+  run "$SCRIPT" 1.2.3 "$SUMS" "$OUT"
+  [ "$status" -ne 0 ]
+  [ -f "$OUT/keep" ]
+}
+
+@test "renders into an existing empty output directory" {
+  mkdir -p "$OUT"
+  run "$SCRIPT" 1.2.3 "$SUMS" "$OUT"
+  [ "$status" -eq 0 ]
+}

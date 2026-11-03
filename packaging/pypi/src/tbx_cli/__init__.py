@@ -2,6 +2,7 @@
 
 import contextlib
 import hashlib
+import http.client
 import os
 import platform
 import sys
@@ -9,6 +10,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import NoReturn
 
 from tbx_cli._checksums import CHECKSUMS, VERSION
 
@@ -17,28 +19,32 @@ OS_NAMES = {"darwin": "darwin", "linux": "linux"}
 ARCH_NAMES = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "amd64": "x64"}
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     sys.stderr.write(f"tbx: {message}\n")
     sys.exit(1)
 
 
-def _asset_name() -> str:
-    os_name = OS_NAMES.get(sys.platform)
-    arch = ARCH_NAMES.get(platform.machine().lower())
-    if not os_name or not arch:
-        _fail(
-            f"unsupported platform {sys.platform}/{platform.machine()}; need macOS or Linux on arm64 or x64"
-        )
-    if os_name == "linux" and any(Path("/lib").glob("ld-musl-*")):
+def asset_name(os_name: str, machine: str, libc: str) -> str:
+    """Map the platform to a release asset name, exiting with a clear message when unsupported."""
+    os_part = OS_NAMES.get(os_name)
+    arch = ARCH_NAMES.get(machine.lower())
+    if not os_part or not arch:
+        _fail(f"unsupported platform {os_name}/{machine}; need macOS or Linux on arm64 or x64")
+    if os_part == "linux" and libc != "glibc":
         _fail("musl-based Linux (such as Alpine) is not supported; the tbx binaries need glibc")
-    return f"tbx-{os_name}-{arch}"
+    return f"tbx-{os_part}-{arch}"
+
+
+def is_allowed_url(url: str) -> bool:
+    """Allow https anywhere, and http only for loopback hosts."""
+    parsed = urllib.parse.urlparse(url)
+    loopback = parsed.hostname in ("127.0.0.1", "localhost")
+    return parsed.scheme == "https" or (parsed.scheme == "http" and loopback)
 
 
 def _download_base() -> str:
     base = os.environ.get("TBX_DOWNLOAD_BASE", DEFAULT_BASE).rstrip("/")
-    url = urllib.parse.urlparse(base)
-    loopback = url.hostname in ("127.0.0.1", "localhost")
-    if url.scheme != "https" and not (url.scheme == "http" and loopback):
+    if not is_allowed_url(base):
         _fail("the download base must use https (http is allowed only for localhost)")
     return base
 
@@ -50,10 +56,11 @@ def _sha256(data: bytes) -> str:
 def _fetch(url: str) -> bytes:
     try:
         with urllib.request.urlopen(url, timeout=60) as res:  # noqa: S310
+            if not is_allowed_url(res.geturl()):
+                _fail(f"download failed: {url}: refusing a redirect to {res.geturl()}")
             return res.read()
-    except OSError as err:
+    except (OSError, http.client.HTTPException) as err:
         _fail(f"download failed: {url}: {err}")
-    return b""
 
 
 def _install(asset: str, expected: str, target: Path) -> None:
@@ -75,7 +82,7 @@ def _install(asset: str, expected: str, target: Path) -> None:
 
 def main() -> None:
     """Run the pinned tbx binary with the original arguments, downloading it first if needed."""
-    asset = _asset_name()
+    asset = asset_name(sys.platform, platform.machine(), platform.libc_ver()[0])
     expected = CHECKSUMS.get(asset)
     if not expected:
         _fail(f"no checksum for {asset} in this package")

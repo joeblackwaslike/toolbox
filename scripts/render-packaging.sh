@@ -20,6 +20,8 @@ version=$1 sums=$2 out=$3
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die 2 "invalid version: $version"
 [ -f "$sums" ] || die 2 "checksums file not found: $sums"
 
+[ -z "$(ls -A "$out" 2>/dev/null)" ] || die 2 "output directory is not empty: $out"
+
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../packaging" && pwd)
 
 declare -A hash
@@ -44,7 +46,6 @@ render() {
   printf '%s\n' "$content" >"$dest"
 }
 
-rm -rf "$out"
 mkdir -p "$out"
 cp -R "$src/npm" "$out/npm"
 cp -R "$src/pypi" "$out/pypi"
