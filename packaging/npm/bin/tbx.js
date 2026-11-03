@@ -10,6 +10,15 @@ const pkg = require('../package.json');
 const DEFAULT_BASE = 'https://github.com/joeblackwaslike/toolbox/releases/download';
 const OS_NAMES = { darwin: 'darwin', linux: 'linux' };
 const ARCH_NAMES = { arm64: 'arm64', x64: 'x64' };
+const NON_TERMINATING_SIGNALS = new Set([
+  'SIGPIPE',
+  'SIGUSR1',
+  'SIGUSR2',
+  'SIGCHLD',
+  'SIGWINCH',
+  'SIGURG',
+  'SIGCONT',
+]);
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'];
 
 function fail(message) {
@@ -96,8 +105,11 @@ function run(target, args) {
   child.on('error', (err) => fail(`could not run ${target}: ${err.message}`));
   child.on('exit', (code, signal) => {
     for (const [sig, handler] of handlers) process.removeListener(sig, handler);
-    if (signal) process.kill(process.pid, signal);
-    else process.exit(code ?? 1);
+    if (!signal) process.exit(code ?? 1);
+    const status = 128 + (os.constants.signals[signal] ?? 1);
+    if (NON_TERMINATING_SIGNALS.has(signal)) process.exit(status);
+    setTimeout(() => process.exit(status), 100);
+    process.kill(process.pid, signal);
   });
 }
 

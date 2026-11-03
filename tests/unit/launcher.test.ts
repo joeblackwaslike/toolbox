@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { type Server, createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
+import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -189,5 +189,16 @@ describe('npm launcher', () => {
     expect(() => assetName({ platform: 'win32', arch: 'x64' })).toThrow(/unsupported platform/);
     expect(() => assetName({ platform: 'linux', arch: 'ia32' })).toThrow(/unsupported platform/);
     expect(() => assetName({ platform: 'linux', arch: 'x64', musl: true })).toThrow(/musl/);
+  });
+  it.each([
+    ['SIGPIPE', 'PIPE'],
+    ['SIGUSR1', 'USR1'],
+  ])('exits 128+n and never 0 when the child dies by %s', async (name, short) => {
+    const dying = `#!/bin/sh\nkill -${short} $$\nsleep 5\n`;
+    served = dying;
+    const r = await run(render(`die-${short}`, dying), []);
+    const n = osConstants.signals[name as keyof typeof osConstants.signals];
+    expect(r.status).toBe(128 + n);
+    expect(r.stderr).not.toContain('Debugger listening');
   });
 });
