@@ -110,10 +110,13 @@ hash_of() {
 
 @test "uses .bash_profile for bash on macOS and .bashrc on Linux" {
   SHELL=/bin/bash TBX_UNAME_S=Darwin run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
   [ -f "${HOME}/.bash_profile" ]
   SHELL=/bin/bash run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
   [ -f "${HOME}/.bashrc" ]
   SHELL=/bin/fish run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
   [ -f "${HOME}/.profile" ]
 }
 
@@ -138,4 +141,37 @@ hash_of() {
   run sh "$SCRIPT"
   [[ "$output" == *"tbx install <tool>"* ]]
   [ ! -e "$TBX_TEST_LOG" ]
+}
+
+@test "fails when checksums.txt has no entry for the platform binary" {
+  grep -v 'tbx-linux-x64$' "${FIXTURES}/v0.2.0/checksums.txt" >"${FIXTURES}/new.txt"
+  mv "${FIXTURES}/new.txt" "${FIXTURES}/v0.2.0/checksums.txt"
+  run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no entry"* ]]
+  [ ! -e "${TBX_INSTALL_DIR}/tbx" ]
+}
+
+@test "does not match a near-miss asset name" {
+  sed 's/tbx-linux-x64"/tbx-linux-x64.deb"/' "${FIXTURES}/releases.json" >"${FIXTURES}/releases.new"
+  mv "${FIXTURES}/releases.new" "${FIXTURES}/releases.json"
+  run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"No complete tbx-cli release"* ]]
+  [[ "$output" == *"latest 100 releases"* ]]
+  [ ! -e "${TBX_INSTALL_DIR}/tbx" ]
+}
+
+@test "works when piped to sh as documented" {
+  run sh -c "cat '$SCRIPT' | sh -s -- transcribe"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TBX_TEST_LOG")" = "tbx install transcribe" ]
+}
+
+@test "a truncated script executes nothing" {
+  local cut
+  cut=$(grep -n 'installed .*install_dir' "$SCRIPT" | head -n 1 | cut -d: -f1)
+  run sh -c "head -n $cut '$SCRIPT' | sh"
+  [ ! -e "${TBX_INSTALL_DIR}/tbx" ]
+  [ ! -e "${TBX_INSTALL_DIR}" ]
 }
