@@ -1,0 +1,19 @@
+[project]
+name = "tbx-cli"
+version = "{{VERSION}}"
+description = "Launcher for the tbx CLI: downloads and runs the checksum-verified release binary."
+license = "MIT"
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/joeblackwaslike/toolbox"
+
+[project.scripts]
+tbx = "tbx_cli:main"
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tbx_cli"]
