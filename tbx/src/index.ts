@@ -92,7 +92,10 @@ function addReleaseCommands(program: Command, run: Runner): void {
     .command('install')
     .description('Install tools from a release index into the managed bin directory')
     .argument('<name>', 'Tool name, or all')
-    .option('--index <path>', 'Release index.json (default: dist/release/index.json)')
+    .option(
+      '--index <path|url>',
+      'Release index.json path or URL (default: $TBX_INDEX, else the GitHub release index)',
+    )
     .action((name: string, options: { index?: string }, command: Command) =>
       run(command, (ctx) => install(ctx, name, options)),
     );

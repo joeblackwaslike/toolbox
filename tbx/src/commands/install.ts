@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink } from 'no
 import path from 'node:path';
 import { ExitCode, ToolError, isErrnoException, messageOf } from '../../../shared/ts/src/errors.ts';
 import { ManifestError, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
-import { EXECUTABLE_MODE, isWithin } from '../../../shared/ts/src/paths.ts';
-import { sha256 } from '../archive.ts';
+import { EXECUTABLE_MODE } from '../../../shared/ts/src/paths.ts';
 import type { TbxContext } from '../context.ts';
 import { assertLinksOwned, identifiers, linksCurrent, toolLinks } from '../links.ts';
+import { fetchArtifact, fetchIndex } from '../remote.ts';
 import { ARTIFACT_MARKER, UnsupportedPlatformError, stageArtifact } from '../stage.ts';
 import {
   type Env,
@@ -18,7 +18,7 @@ import {
   writeState,
 } from '../state.ts';
 import { pathExists } from '../templates.ts';
-import { DEFAULT_RELEASE_DIR, type IndexEntry, readIndex } from './build.ts';
+import type { IndexEntry } from './build.ts';
 
 /** Points between install steps where a test can kill the process with `faultAt`. */
 export const FAULT_POINTS = [
@@ -35,7 +35,7 @@ export type FaultPoint = (typeof FAULT_POINTS)[number];
 export interface InstallOptions {
   /** Tool to install; checked against the manifest name pattern before any path is built. */
   name: string;
-  /** Path of the release `index.json`. */
+  /** Local path, `file:` URL or `https:` URL of the release `index.json`. */
   index: string;
   /** Home directory the install layout is resolved against. */
   home: string;
@@ -60,20 +60,8 @@ function envOf(options: { env?: Env }): Env {
   return options.env ?? process.env;
 }
 
-function artifactPath(index: string, entry: IndexEntry): string {
-  const base = path.dirname(path.resolve(index));
-  const file = path.resolve(base, entry.artifact);
-  if (path.isAbsolute(entry.artifact) || !isWithin(base, file)) {
-    throw new ToolError(
-      `${index}: artifact for ${entry.name} must stay inside the index directory`,
-      ExitCode.config,
-    );
-  }
-  return file;
-}
-
 async function findEntry(index: string, name: string): Promise<IndexEntry> {
-  const entries = await readIndex(index);
+  const entries = await fetchIndex(index);
   const entry = entries.find((tool) => tool.name === name);
   if (entry === undefined) throw new ToolError(`${name} is not in ${index}`);
   return entry;
@@ -164,17 +152,6 @@ async function prune(
   }
 }
 
-async function verifiedBytes(artifact: string, entry: IndexEntry): Promise<Buffer> {
-  const bytes = await readFile(artifact);
-  const actual = sha256(bytes);
-  if (actual !== entry.sha256) {
-    throw new ToolError(
-      `checksum mismatch for ${artifact}: index says ${entry.sha256}, file is ${actual}`,
-    );
-  }
-  return bytes;
-}
-
 async function activate(
   m: ToolManifest,
   versionDir: string,
@@ -202,11 +179,10 @@ async function activate(
 
 async function installLocked(
   entry: IndexEntry,
-  artifact: string,
   paths: TbxPaths,
   options: InstallOptions,
 ): Promise<void> {
-  const bytes = await verifiedBytes(artifact, entry);
+  const bytes = await fetchArtifact(entry, options.index);
   await rm(paths.staging, { recursive: true, force: true });
   await mkdir(paths.staging, { recursive: true, mode: EXECUTABLE_MODE });
   const stage = await mkdtemp(path.join(paths.staging, `${entry.name}-`));
@@ -242,13 +218,8 @@ async function installLocked(
 export async function installTool(options: InstallOptions): Promise<void> {
   assertToolName(options.name);
   const entry = await findEntry(options.index, options.name);
-  const artifact = artifactPath(options.index, entry);
   const paths = tbxPaths(options.home, envOf(options));
-  await withLock(
-    paths.lockFile,
-    () => installLocked(entry, artifact, paths, options),
-    options.lockTimeoutMs,
-  );
+  await withLock(paths.lockFile, () => installLocked(entry, paths, options), options.lockTimeoutMs);
 }
 
 /**
@@ -316,9 +287,18 @@ export async function installedToolFor(paths: TbxPaths, word: string): Promise<s
   return null;
 }
 
-/** Default `--index`: `dist/release/index.json` under the repo root. */
-export function defaultIndex(root: string): string {
-  return path.join(root, DEFAULT_RELEASE_DIR, 'index.json');
+/** Release index `tbx install` reads when neither `--index` nor `TBX_INDEX` is given. */
+export const DEFAULT_INDEX_URL =
+  'https://raw.githubusercontent.com/joeblackwaslike/toolbox/release-index/index.json';
+
+/** Default `--index`: `TBX_INDEX` from `env`, else the published release index. */
+export function defaultIndex(env: Env): string {
+  const override = env.TBX_INDEX;
+  return override === undefined || override === '' ? DEFAULT_INDEX_URL : override;
+}
+
+function resolveIndex(source: string): string {
+  return /^(https?|file):/i.test(source) ? source : path.resolve(source);
 }
 
 /** Options for `install`; `lockTimeoutMs` is for library callers and tests, not a CLI flag. */
@@ -398,12 +378,12 @@ function bulkFailure(failed: { name: string; error: unknown }[]): ToolError {
 }
 
 async function indexNames(index: string): Promise<string[]> {
-  const entries = await readIndex(index);
+  const entries = await fetchIndex(index);
   return entries.map((entry) => entry.name);
 }
 
 /**
- * `tbx install <name|all> [--index <path>]`: installs one tool, or every tool in the index.
+ * `tbx install <name|all> [--index <path|url>]`: installs one tool, or every tool in the index.
  * With `all`, only a tool that does not support this platform is skipped (and reported); any
  * other failure, such as a lock timeout or a missing unit validator under CI, is printed as
  * `<name>: <message>`, the remaining tools are still attempted, and the command then fails with
@@ -415,7 +395,7 @@ export async function install(
   target: string,
   options: InstallCommandOptions,
 ): Promise<void> {
-  const index = path.resolve(options.index ?? defaultIndex(ctx.root));
+  const index = resolveIndex(options.index ?? defaultIndex(ctx.env));
   if (target !== 'all') {
     const version = await installSingle(ctx, target, index, options);
     ctx.out.result(

@@ -25,12 +25,13 @@ const SOURCE_COMMAND = /^(?:source|\.)\s/;
 /** Longest one build step (an esbuild bundle or a `uv` command) may run before the build fails. */
 export const BUILD_STEP_TIMEOUT_MS = 300_000;
 
-/** Directory `tbx build` writes to and `tbx install` reads `index.json` from by default. */
+/** Directory `tbx build` writes its artifacts and `index.json` to by default. */
 export const DEFAULT_RELEASE_DIR = 'dist/release';
 
 /**
- * One tool in a release index. `artifact` is the `.tar.gz` path relative to the directory that
- * holds `index.json`; `sha256` is its hex checksum.
+ * One tool in a release index. `artifact` is the `.tar.gz` path relative to the directory (or URL
+ * directory) that holds `index.json`, or an absolute `https:` URL when the index is remote;
+ * `sha256` is its hex checksum.
  */
 export interface IndexEntry {
   name: string;
@@ -73,11 +74,20 @@ export async function readIndex(file: string): Promise<IndexEntry[]> {
     }
     throw error;
   }
+  return parseIndex(text, file);
+}
+
+/**
+ * Parses the text of a release index fetched from `source`.
+ *
+ * @throws {ToolError} exit 78 when it is not a valid index.
+ */
+export function parseIndex(text: string, source: string): IndexEntry[] {
   try {
     return indexSchema.parse(JSON.parse(text)).tools;
   } catch (error) {
     throw new ToolError(
-      `${file} is not a valid release index: ${messageOf(error)}`,
+      `${source} is not a valid release index: ${messageOf(error)}`,
       ExitCode.config,
     );
   }
