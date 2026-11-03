@@ -302,6 +302,6 @@ export function isEntryPoint(moduleUrl: string, argv1: string | undefined): bool
   }
 }
 
-if (isEntryPoint(import.meta.url, process.argv[1])) {
+if (import.meta.main || isEntryPoint(import.meta.url, process.argv[1])) {
   process.exitCode = await execute(process.argv.slice(2), { root: REPO_ROOT }, PROCESS_STREAMS);
 }

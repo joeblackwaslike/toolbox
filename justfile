@@ -71,3 +71,6 @@ verify-tool name:
 
 verify-all: lint test gen-check
   pnpm --silent tbx verify --all
+
+compile:
+  scripts/compile-tbx.sh dist/cli
