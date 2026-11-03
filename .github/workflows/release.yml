@@ -342,8 +342,8 @@ jobs:
 
   smoke:
     name: smoke (${{ matrix.platform }})
-    needs: [resolve, sign-macos]
-    if: ${{ !cancelled() && needs.sign-macos.result == 'success' }}
+    needs: [resolve, cli-build, sign-macos]
+    if: ${{ !cancelled() && needs.cli-build.result == 'success' && needs.sign-macos.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     permissions: {}
@@ -392,8 +392,6 @@ jobs:
     env:
       TAG: ${{ fromJSON(needs.resolve.outputs.cli).tag }}
       VERSION: ${{ fromJSON(needs.resolve.outputs.cli).version }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
     steps:
       - name: Report a release that is already complete
         if: needs.cli-build.outputs.state == 'complete'
@@ -446,6 +444,9 @@ jobs:
 
       - name: Upload the binaries and packages, then checksums.txt last
         if: needs.cli-build.outputs.state == 'incomplete'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           scripts/cli-release-state.sh --clear "$TAG"
           scripts/upload-release-asset.sh "$TAG" dist/cli/tbx-darwin-arm64 dist/cli/tbx-darwin-x64 \

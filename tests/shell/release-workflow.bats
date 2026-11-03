@@ -18,6 +18,12 @@ needs_of() {
   jq -c --arg j "$1" '.jobs[$j].needs | if type == "string" then [.] else . end' "$WORKFLOW_JSON"
 }
 
+if_of() {
+  jq -r --arg j "$1" '.jobs[$j].if // "" | gsub("\\$\\{\\{|\\}\\}"; "") | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ")' "$WORKFLOW_JSON"
+}
+
+readonly CLI_JOBS=(cli-build sign-macos smoke cli-upload publish-npm publish-pypi publish-brew)
+
 @test "the workflow grants nothing at the top level" {
   q '.permissions == {}'
 }
@@ -103,6 +109,50 @@ needs_of() {
 @test "publish-pypi uses trusted publishing in the pypi environment and skips existing files" {
   q '.jobs["publish-pypi"].environment == "pypi"'
   q '.jobs["publish-pypi"].steps[] | select((.uses // "") | startswith("pypa/gh-action-pypi-publish@")) | .with["skip-existing"] == true'
+}
+
+@test "every tbx-cli job opts out of the skipped-ancestor rule with !cancelled()" {
+  local job
+  for job in "${CLI_JOBS[@]}"; do
+    [[ "$(if_of "$job")" == '!cancelled() && '* ]] || {
+      echo "$job: $(if_of "$job")"
+      return 1
+    }
+  done
+}
+
+@test "smoke runs only after cli-build and sign-macos succeed" {
+  local gate
+  gate=$(if_of smoke)
+  [[ "$gate" == *"needs.cli-build.result == 'success'"* ]]
+  [[ "$gate" == *"needs.sign-macos.result == 'success'"* ]]
+  [[ "$gate" != *'||'* ]]
+}
+
+@test "cli-upload uploads only smoked bytes, or nothing for a complete release" {
+  local gate
+  gate=$(if_of cli-upload)
+  [[ "$gate" == *"needs.cli-build.result == 'success'"* ]]
+  [[ "$gate" == *"&& (needs.smoke.result == 'success' || needs.cli-build.outputs.state == 'complete')" ]]
+}
+
+@test "publish-brew runs only after npm and PyPI both succeed" {
+  local gate
+  gate=$(if_of publish-brew)
+  [[ "$gate" == *"needs.publish-npm.result == 'success'"* ]]
+  [[ "$gate" == *"needs.publish-pypi.result == 'success'"* ]]
+  [[ "$gate" != *'||'* ]]
+}
+
+@test "the npm publish records provenance" {
+  q '[.jobs["publish-npm"].steps[] | .run // "" | select(contains("npm publish"))] | length == 1'
+  q '.jobs["publish-npm"].steps[] | .run // "" | select(contains("npm publish")) | test("npm publish [^\n]*--provenance")'
+}
+
+@test "the write-scoped token in cli-upload reaches only the step that talks to the release" {
+  q '.jobs["cli-upload"].env // {} | has("GH_TOKEN") | not'
+  run jq -r '.jobs["cli-upload"].steps[] | select(.env.GH_TOKEN) | .name' "$WORKFLOW_JSON"
+  [ "$output" = "Upload the binaries and packages, then checksums.txt last" ]
 }
 
 @test "only tool releases drop the repo-wide latest label" {
