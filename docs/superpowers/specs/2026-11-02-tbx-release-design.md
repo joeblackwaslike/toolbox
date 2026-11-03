@@ -54,7 +54,7 @@ A fresh macOS or Linux machine runs one `curl … | sh` line and gets `tbx` plus
 
 ### Versioning
 
-`release-please-config.json` and `.release-please-manifest.json` at the repo root, manifest mode, `separate-pull-requests: true`. One package per entry: each `tools/<name>` and `tbx`. `release-type: simple`. Component names are the tool names, with `tbx-cli` for the `tbx/` package. Tags are `<component>-v<version>`.
+`release-please-config.json` and `.release-please-manifest.json` at the repo root, manifest mode, `separate-pull-requests: true`. One package per entry: each `tools/<name>` and `tbx`. `release-type: simple`. Component names are the tool names, with `tbx-cli` for the `tbx/` package. Tags are `<component>-v<version>`. The manifest sets `bootstrap-sha` to the `main` commit at the time this lands, so the first release PRs contain only new commits and not the whole repo history.
 
 For each tool, the version lives in `tools/<name>/tool.toml`, and release-please writes the bump there through an `extra-files` entry with a `toml` updater. For `tbx-cli`, the package path is `tbx/` and the version lives in a new `tbx/version.txt` (`release-type: simple` writes it natively). Commits that touch only `tbx/` release `tbx-cli`. The npm and PyPI manifests carry no version of their own: the workflow generates them from the released version at publish time, and the hardcoded 0.0.1 placeholders in `packaging/` are deleted along with `publish.yml` when the first real release lands. `tbx-cli` starts at `0.1.0` and each existing tool starts at its current `tool.toml` version.
 
@@ -70,14 +70,14 @@ CI also fails a pull request when its stamps are out of date, so contributors se
 
 `.github/workflows/release.yml` runs on pushes to `main`.
 
-1. `release-please` runs and exposes `releases_created` and per-path outputs.
+1. `release-please` runs and exposes `releases_created` and per-path outputs. Every later job checks out the tag release-please created, not the branch head, so a push that lands mid-run cannot change what gets built.
 2. For each created tool release, a `tool-release` job builds that tool's tarball with `tbx build`, uploads it and its checksum to the release, and regenerates the release index.
 3. If `tbx-cli` was released, a `cli-release` job builds the four binaries (darwin-arm64, darwin-x64, linux-arm64, linux-x64, all glibc) with `bun build --compile --target …` from one Linux runner, using the Bun version in `.bun-version`.
 4. A `sign-macos` job on a macOS runner signs both darwin binaries with the Developer ID Application certificate (hardened runtime, with the entitlements Bun's JIT needs), submits them to Apple with `notarytool`, and waits for acceptance. A bare binary cannot be stapled, so Gatekeeper checks the notarization ticket online on first run. 
-5. A `smoke` matrix runs the final bytes: `macos-15-intel` and `ubuntu-24.04` for x64, and the arm64 runners for arm64, each running `tbx --version` and `tbx list`. Only after every leg passes does the workflow compute `checksums.txt` and upload the binaries, the checksums, and the `.deb` and `.rpm` files for both Linux architectures.
+5. A `smoke` matrix runs the final bytes: `macos-15-intel` and `ubuntu-24.04` for x64, and the arm64 runners for arm64, each running `tbx --version` and `tbx list`. Only after every leg passes does the workflow upload the binaries and the `.deb` and `.rpm` files for both Linux architectures, and then, last, `checksums.txt`. `checksums.txt` is the completeness marker: a `tbx-cli` release without it is incomplete and nothing downstream may use it.
 6. After the upload, publish jobs run in order: npm, PyPI, then the Homebrew formula. Each publish is idempotent, so a rerun after a partial failure skips channels that already have the version.
 
-Assets are uploaded with `--clobber` disabled, so an existing asset is never replaced. The one exception is `index.json`, which is replaced on every tool release. A single concurrency group, `release`, with `cancel-in-progress: false`, covers the whole workflow, so runs queue rather than interleave. Release-please creates non-draft releases, and `make_latest` is false for tool releases so they never take GitHub's repo-wide "latest" label.
+Assets are uploaded with `--clobber` disabled, so an existing asset is never replaced. A rerun after a partial failure downloads the assets already on the release and reuses them instead of rebuilding or re-signing, because a rebuilt binary has different bytes than the uploaded one. If a rebuilt asset differs from an existing one, the job fails and does not overwrite it. The one exception is `index.json`, which is replaced on every tool release. A single concurrency group, `release`, with `cancel-in-progress: false`, covers the whole workflow, so runs queue rather than interleave. Release-please creates non-draft releases, and `make_latest` is false for tool releases so they never take GitHub's repo-wide "latest" label.
 
 ### The release index
 
@@ -89,7 +89,7 @@ This is new code, not a change of default. Today `tbx install` only reads artifa
 
 ### The installer
 
-`install.sh` at the repo root, served from `raw.githubusercontent.com` at a release tag. It detects OS, architecture and libc, exits with a clear message on musl, downloads the matching `tbx` binary from the newest release whose tag starts with `tbx-cli-v` (found with the unauthenticated releases API), verifies it against `checksums.txt`, installs it to `~/.local/share/tbx/bin`, adds that to PATH for the user's shell, and runs `tbx install` for any tool names passed as arguments. It needs only `curl`, `sh`, `uname` and `shasum` or `sha256sum`.
+`install.sh` at the repo root, served from `raw.githubusercontent.com` at a release tag. It detects OS, architecture and libc, exits with a clear message on musl, downloads the matching `tbx` binary from the newest release whose tag starts with `tbx-cli-v` and that has a `checksums.txt` asset (found with the unauthenticated releases API, so an incomplete release is skipped in favor of the previous one), verifies it against `checksums.txt`, installs it to `~/.local/share/tbx/bin`, adds that to PATH for the user's shell, and runs `tbx install` for any tool names passed as arguments. It needs only `curl`, `sh`, `uname` and `shasum` or `sha256sum`.
 
 ### Packages
 
@@ -108,7 +108,7 @@ This is new code, not a change of default. Today `tbx install` only reads artifa
 
 ### Failure handling
 
-Release-please runs before anything is built, so a build failure leaves a tag with no assets. The workflow can be re-run from the Actions tab, and every upload and publish step skips work already done. A release is only complete when `index.json` lists it; `tbx install` never sees a half-published version.
+Release-please runs before anything is built, so a build failure leaves a tag with no assets. The workflow can be re-run from the Actions tab, and every upload and publish step skips work already done. A tool release is complete when `index.json` lists it, and a `tbx-cli` release is complete when it has `checksums.txt`. `tbx install` and `install.sh` only use complete releases, so they never see a half-published version.
 
 ## Calls I made (not agreed with Joe, check these)
 
@@ -126,7 +126,7 @@ Release-please runs before anything is built, so a build failure leaves a tag wi
 - A single `index.json` on a fixed `index` release, instead of an index per tool release.
 - `nfpm` for `.deb` and `.rpm`.
 - Launcher-style npm and PyPI packages that download the binary on first run, instead of bundling all four binaries in the package.
-- `macos-15-intel` for the x64 macOS smoke test.
+- `macos-15-intel` for the x64 macOS smoke test. If that runner label is gone, the x64 macOS binary ships without a smoke test and the gap is recorded in the release notes.
 - `bun build --compile` cross-compiling all four targets from one runner.
 
 ## Unverified
