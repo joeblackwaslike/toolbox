@@ -5,7 +5,10 @@
 #
 # Usage: upload-release-asset.sh <tag> <file>...
 set -euo pipefail
-shopt -s inherit_errexit
+shopt -s inherit_errexit 2>/dev/null || {
+  echo "upload-release-asset.sh needs bash >= 4.4" >&2
+  exit 1
+}
 
 die() {
   printf 'upload-release-asset: %s\n' "$2" >&2

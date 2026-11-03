@@ -62,9 +62,14 @@ jobs:
             git add -- "$file"
             git commit --quiet --message "fix(${component}): bundle updated shared" -- "$file"
           done
-          if [ -n "$changed" ]; then
-            git push origin HEAD:main
-          fi
+          [ -n "$changed" ] || exit 0
+          for retry in 0 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            [ "$retry" -lt 3 ] || break
+            git pull --rebase origin main
+          done
+          echo "push to main still rejected after 3 retries" >&2
+          exit 1
 
   release-please:
     needs: stamp
@@ -188,6 +193,13 @@ jobs:
           FILE: ${{ steps.build.outputs.file }}
         run: scripts/upload-release-asset.sh "$TAG" "$FILE" "${FILE}.sha256"
 
+      - name: Keep the repo-wide latest label off the tool release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ matrix.tag }}
+        run: scripts/release-not-latest.sh "$TAG"
+
   index:
     needs: [resolve, tool-release]
     if: ${{ !cancelled() && needs.tool-release.result == 'success' }}
@@ -209,9 +221,9 @@ jobs:
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
-          jq -r '.[] | "\(.component) \(.version) \(.tag)"' <<<"$TOOLS" | while read -r name version tag; do
+          while read -r name version tag; do
             file="${name}-${version}.tar.gz"
-            sha256=$(gh release download "$tag" --pattern "${file}.sha256" --output - | cut -d ' ' -f 1)
+            sha256=$(gh release download "$tag" --pattern "${file}.sha256" --output - </dev/null | cut -d ' ' -f 1)
             scripts/publish-index.sh "$name" "$version" \
-              "https://github.com/${GH_REPO}/releases/download/${tag}/${file}" "$sha256"
-          done
+              "https://github.com/${GH_REPO}/releases/download/${tag}/${file}" "$sha256" </dev/null
+          done < <(jq -r '.[] | "\(.component) \(.version) \(.tag)"' <<<"$TOOLS")

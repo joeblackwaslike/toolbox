@@ -5,7 +5,10 @@
 # Usage: resolve-releases.sh outputs <release-please outputs as JSON>
 #        resolve-releases.sh tags "<tag>[ ,]<tag>..."   (looks each tag up with `gh api`)
 set -euo pipefail
-shopt -s inherit_errexit
+shopt -s inherit_errexit 2>/dev/null || {
+  echo "resolve-releases.sh needs bash >= 4.4" >&2
+  exit 1
+}
 
 readonly TAG_PATTERN='^([a-z][a-z0-9-]{0,15})-v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$'
 

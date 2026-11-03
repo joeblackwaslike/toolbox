@@ -5,7 +5,10 @@
 #
 # Usage: publish-index.sh <name> <version> <artifact-url> <sha256>
 set -euo pipefail
-shopt -s inherit_errexit
+shopt -s inherit_errexit 2>/dev/null || {
+  echo "publish-index.sh needs bash >= 4.4" >&2
+  exit 1
+}
 
 readonly BRANCH=release-index
 readonly LOCAL_REF=refs/tbx/release-index
