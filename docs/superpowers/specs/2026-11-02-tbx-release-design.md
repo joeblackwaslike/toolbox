@@ -72,10 +72,10 @@ The post-merge `stamp` job is the only writer of stamps. Pull request CI does no
 
 1. `release-please` runs and exposes `releases_created` and per-path outputs. Every later job checks out the tag release-please created, not the branch head, so a push that lands mid-run cannot change what gets built.
 2. For each created tool release, a `tool-release` job builds that tool's tarball with `tbx build`, uploads it and its checksum to the release, and then the `index` job adds its entry to the release index.
-3. If `tbx-cli` was released, a `cli-release` job builds the four binaries (darwin-arm64, darwin-x64, linux-arm64, linux-x64, all glibc) with `bun build --compile --target …` from one Linux runner, using the Bun version in `.bun-version`.
+3. If `tbx-cli` was released, a `cli-build` job builds the four binaries (darwin-arm64, darwin-x64, linux-arm64, linux-x64, all glibc) with `bun build --compile --target …` from one Linux runner, using the Bun version in `.bun-version`.
 4. A `sign-macos` job on a macOS runner signs both darwin binaries with the Developer ID Application certificate (hardened runtime, with the entitlements Bun's JIT needs), zips the signed binaries, submits the zip to Apple with `notarytool submit --wait`, and requires the status `Accepted`. Apple does not accept a bare Mach-O file as a submission, only a zip, pkg or dmg. The uploaded binaries are the signed files themselves, not extracted copies. A bare binary cannot be stapled, so Gatekeeper checks the notarization ticket online on first run. 
 5. A `smoke` matrix runs the final bytes: `macos-15-intel` and `ubuntu-24.04` for x64, and the arm64 runners for arm64, each running `tbx --version` and `tbx list`. Only after every leg passes does the workflow upload the binaries and the `.deb` and `.rpm` files for both Linux architectures, and then, last, `checksums.txt`. `checksums.txt` is the completeness marker: a `tbx-cli` release without it is incomplete and nothing downstream may use it.
-6. After the upload, publish jobs run in order: npm, PyPI, then the Homebrew formula. Each publish is idempotent, so a rerun after a partial failure skips channels that already have the version.
+6. After the upload, npm and PyPI publish in parallel, since they are independent, and the Homebrew formula follows once both succeed. Each publish is idempotent, so a rerun after a partial failure skips channels that already have the version.
 
 Assets are uploaded with `--clobber` disabled, so an existing asset is never replaced. A rerun after a partial failure downloads the assets already on the release and reuses them instead of rebuilding or re-signing, because a rebuilt binary has different bytes than the uploaded one. If a rebuilt asset differs from an existing one, the job fails and does not overwrite it. A single concurrency group, `release`, with `cancel-in-progress: false`, covers the whole workflow, so one run executes at a time. GitHub keeps only one pending run per group and replaces older pending runs with the newest. That is safe here: `release-please` and `stamp` always work from the latest `main` and find merged release PRs by their labels, so a dropped pending run loses nothing. Release-please creates non-draft releases, and `make_latest` is false for tool releases so they never take GitHub's repo-wide "latest" label.
 
@@ -101,7 +101,7 @@ This is new code, not a change of default. Today `tbx install` only reads artifa
 ### Tokens and permissions
 
 - npm: `NPM_TOKEN` for the first real release. Joe switches to a Trusted Publisher after that release, since npm can only configure one for an existing package, and the workflow then drops the token.
-- PyPI: Trusted Publisher, already set up.
+- PyPI: Trusted Publisher bound to this repository, the workflow `release.yml` and the environment `pypi`. The publisher set up for the placeholders is bound to `publish.yml`, so Joe adds one for `release.yml` before the first release.
 - Homebrew tap: a fine-grained token with contents write on `homebrew-tap` only, stored as `HOMEBREW_TAP_TOKEN`.
 - Signing: the Developer ID Application certificate and its password (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`) and an App Store Connect API key for `notarytool` (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`). The job imports the certificate into a temporary keychain that is deleted at the end of the job.
 - Permissions are set per job, never workflow-wide. `stamp`: `contents: write`. `release-please`: `contents: write`, `pull-requests: write`, `issues: write` (it labels pull requests). Jobs that upload assets: `contents: write`. `index`: `contents: write`. npm and PyPI publish jobs: `contents: read` and `id-token: write`. The repository setting "Allow GitHub Actions to create and approve pull requests" must be on for release-please, and Claude turns it on with `gh api`.
@@ -143,6 +143,7 @@ Release-please runs before anything is built, so a build failure leaves a tag wi
 - Creating the fine-grained `HOMEBREW_TAP_TOKEN` and adding it as a secret needs Joe's login. Claude creates the `joeblackwaslike/homebrew-tap` repo itself.
 - Switching npm to a Trusted Publisher and deleting `NPM_TOKEN`.
 - Exporting the Developer ID Application certificate as a `.p12` and creating an App Store Connect API key (Joe's Apple login), then `gh secret set` for the five signing secrets.
+- Adding a PyPI trusted publisher for `tbx-cli` bound to workflow `release.yml` and environment `pypi` (Joe's PyPI login).
 - Rotating the token in `~/bin/glm-claude`.
 
 ## Left to the builder
