@@ -89,3 +89,13 @@ describe('tbx stamp', () => {
     expect(stale.stdout.trim()).toBe('beta');
   });
 });
+
+describe('tbx stamp on the real repo', () => {
+  it('stamps tbx-cli without throwing and stably', async () => {
+    const root = join(import.meta.dirname, '../..');
+    const first = await computeStamp(root, 'tbx-cli');
+    expect(await computeStamp(root, 'tbx-cli')).toBe(first);
+    const results = await stampAll(root, false);
+    expect(results.map((r) => r.component)).toContain('tbx-cli');
+  });
+});

@@ -138,9 +138,9 @@ async function esbuildTs(
     banner: { js: '#!/usr/bin/env bun' },
     plugins: [
       {
-        name: 'tool-toml-text',
+        name: 'text-files',
         setup(plugin) {
-          plugin.onLoad({ filter: /\.toml$/ }, async (args) => ({
+          plugin.onLoad({ filter: /\.(toml|txt)$/ }, async (args) => ({
             contents: await readFile(args.path, 'utf8'),
             loader: 'text',
           }));
