@@ -1,0 +1,48 @@
+name: Sign check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign-check:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun (version from .bun-version)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Compile (compile-tbx.sh builds all four targets; only darwin is signed)
+        run: scripts/compile-tbx.sh "${RUNNER_TEMP}/dist"
+
+      - name: Sign and notarize the darwin binaries
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: scripts/sign-macos.sh "${RUNNER_TEMP}/dist/tbx-darwin-arm64" "${RUNNER_TEMP}/dist/tbx-darwin-x64"
+
+      - name: Verify signatures and run the host binary
+        run: |
+          for bin in "${RUNNER_TEMP}"/dist/tbx-darwin-*; do
+            echo "== ${bin}"
+            codesign --verify --strict --verbose=2 "$bin"
+            details=$(codesign -dv --verbose=4 "$bin" 2>&1)
+            echo "$details"
+            grep -E '^Authority=Developer ID Application' <<<"$details"
+            grep -E 'flags=0x[0-9a-f]+\(.*runtime' <<<"$details"
+            spctl --assess --type execute -vv "$bin" || echo "spctl rejected (expected for bare binaries; not fatal)"
+            shasum -a 256 "$bin"
+          done
+          "${RUNNER_TEMP}/dist/tbx-darwin-arm64" --version
