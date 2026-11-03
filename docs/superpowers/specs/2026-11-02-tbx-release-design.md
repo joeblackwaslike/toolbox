@@ -123,7 +123,7 @@ Release-please runs before anything is built, so a build failure leaves a tag wi
 
 - `release-type: simple` with `tool.toml` as the version source, over per-language release types.
 - The stamp-file mechanism for the `shared/` rule.
-- A single `index.json` on a fixed `index` release, instead of an index per tool release.
+- A single `index.json` for all tools on one branch, instead of an index per tool release.
 - `nfpm` for `.deb` and `.rpm`.
 - Launcher-style npm and PyPI packages that download the binary on first run, instead of bundling all four binaries in the package.
 - `macos-15-intel` for the x64 macOS smoke test. If that runner label is gone, the x64 macOS binary ships without a smoke test and the gap is recorded in the release notes.
