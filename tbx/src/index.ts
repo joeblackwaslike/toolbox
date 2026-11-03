@@ -9,6 +9,7 @@ import { ExitCode } from '../../shared/ts/src/errors.ts';
 import { RESERVED_COMMANDS } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
 import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
+import version from '../version.txt' with { type: 'text' };
 import { build } from './commands/build.ts';
 import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
@@ -146,6 +147,7 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .description('Scaffold, document and inspect the tools in this repo')
     .option('-y, --no-input', 'Disable all prompts')
     .option('--json', 'Print machine-readable JSON to stdout')
+    .version(version.trim(), '-V, --version')
     .helpCommand(false)
     .exitOverride()
     .configureOutput({
