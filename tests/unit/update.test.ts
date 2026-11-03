@@ -1,11 +1,15 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { createOutput } from '../../shared/ts/src/output.ts';
+import { packTar, sha256 } from '../../tbx/src/archive.ts';
+import { writeIndex } from '../../tbx/src/commands/build.ts';
 import { install } from '../../tbx/src/commands/install.ts';
 import { update } from '../../tbx/src/commands/update.ts';
 import type { TbxContext } from '../../tbx/src/context.ts';
 import { readState, recordOf, tbxPaths } from '../../tbx/src/state.ts';
-import { publish, sandbox } from '../helpers/release.ts';
+import { members, publish, sandbox } from '../helpers/release.ts';
 
 function context(home: string): TbxContext {
   return {
@@ -73,6 +77,25 @@ describe('tbx update', () => {
   it('considers every installed tool when no name is given', async () => {
     const box = await sandbox();
     const ctx = context(box.home);
-    expect(await update(ctx, { index: await publish(box, '0.1.0') })).toEqual([]);
+    const names = ['hello', 'world'];
+    const release = async (version: string): Promise<string> => {
+      const entries = await Promise.all(
+        names.map(async (name) => {
+          const bytes = packTar(members(version, '', name));
+          const artifact = `${name}-${version}.tar.gz`;
+          await writeFile(join(box.releases, artifact), bytes);
+          return { name, version, artifact, sha256: sha256(bytes) };
+        }),
+      );
+      return writeIndex(box.releases, entries);
+    };
+    await install(ctx, 'all', { index: await release('0.1.0') });
+    const results = await update(ctx, { index: await release('0.2.0') });
+    expect(results).toEqual([
+      { name: 'hello', from: '0.1.0', to: '0.2.0' },
+      { name: 'world', from: '0.1.0', to: '0.2.0' },
+    ]);
+    const state = await readState(tbxPaths(ctx.home, ctx.env));
+    expect(names.map((name) => recordOf(state, name)?.version)).toEqual(['0.2.0', '0.2.0']);
   });
 });
