@@ -36,20 +36,21 @@ cleanup() {
     security list-keychains -d user -s "${orig_keychains[@]}" >/dev/null 2>&1 || true
   fi
   security delete-keychain "$keychain" >/dev/null 2>&1 || true
-  rm -rf "$work"
+  rm -rf "$work" || true
   exit "$rc"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+keychain_list=$(security list-keychains -d user)
 while IFS= read -r line; do
   line=${line#"${line%%[![:space:]]*}"}
   line=${line%"${line##*[![:space:]]}"}
   line=${line#\"}
   line=${line%\"}
   if [ -n "$line" ]; then orig_keychains+=("$line"); fi
-done < <(security list-keychains -d user)
+done <<<"$keychain_list"
 
 cat >"${work}/entitlements.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -107,7 +108,7 @@ ditto -c -k "$stage" "$archive"
 submit_out="${work}/submit.out"
 submit_rc=0
 xcrun notarytool submit "$archive" --key "${work}/notary-key.p8" \
-  --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait >"$submit_out" 2>&1 || submit_rc=$?
+  --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait --timeout 20m >"$submit_out" 2>&1 || submit_rc=$?
 cat "$submit_out"
 
 submission_id=$(awk '$1 == "id:" { print $2; exit }' "$submit_out")

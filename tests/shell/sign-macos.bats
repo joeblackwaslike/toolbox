@@ -60,9 +60,16 @@ for a in "$@"; do
 done
 case "$2" in
 submit)
+  if [ -n "${FAKE_NOTARY_HANG:-}" ]; then
+    echo $$ >"${FAKE_LOG}.pid"
+    exec sleep 30
+  fi
   echo "Conducting pre-submission checks"
-  echo "  id: 11111111-2222-3333-4444-555555555555"
-  echo "  status: ${FAKE_NOTARY_STATUS:-Accepted}"
+  if [ -z "${FAKE_NOTARY_SILENT:-}" ]; then
+    echo "  id: 11111111-2222-3333-4444-555555555555"
+    echo "  status: ${FAKE_NOTARY_STATUS:-Accepted}"
+  fi
+  exit "${FAKE_NOTARY_RC:-0}"
   ;;
 log) echo "NOTARY-LOG-BODY issues: bad thing" ;;
 esac
@@ -72,6 +79,8 @@ FAKE
   PATH="${FAKEBIN}:${PATH}"
   export PATH
 
+  export TMPDIR="${WORK}/tmp"
+  mkdir -p "$TMPDIR"
   export TBX_SIGN_ALLOW_ANY_OS=1
   export MACOS_CERT_P12="U0VDUkVUUDEyREFUQQ=="
   export MACOS_CERT_PASSWORD="p12-pass-SECRET"
@@ -133,7 +142,7 @@ line_no() { grep -n -m1 -- "$1" "$FAKE_LOG" | cut -d: -f1; }
   grep -q -- "set-key-partition-list -S apple-tool:,apple: -s" "$FAKE_LOG"
   [ "$(grep -c '^codesign --force' "$FAKE_LOG")" -eq 2 ]
   grep -q -- "--timestamp --options runtime --entitlements .* --sign 0123456789ABCDEF" "$FAKE_LOG"
-  grep -q -- "--wait" "$FAKE_LOG"
+  grep -q -- "--wait --timeout 20m" "$FAKE_LOG"
   grep -q -- "--key-id KEYID-SECRET --issuer issuer-SECRET-uuid" "$FAKE_LOG"
 }
 
@@ -189,4 +198,46 @@ line_no() { grep -n -m1 -- "$1" "$FAKE_LOG" | cut -d: -f1; }
   [[ "$output" != *"p12-pass-SECRET"* ]]
   [ "$(grep -c -- 'p12-pass-SECRET' "$FAKE_LOG")" -eq 1 ]
   grep -- 'p12-pass-SECRET' "$FAKE_LOG" | grep -q '^security import'
+}
+
+@test "notarytool output without id or status fails and requests no log" {
+  FAKE_NOTARY_SILENT=1 run "$SCRIPT" "$BIN"
+  [ "$status" -ne 0 ]
+  ! grep -q "notarytool log" "$FAKE_LOG"
+  grep -q "^security delete-keychain" "$FAKE_LOG"
+}
+
+@test "notarytool exit code non-zero fails even when Accepted is printed" {
+  FAKE_NOTARY_RC=3 run "$SCRIPT" "$BIN"
+  [ "$status" -ne 0 ]
+}
+
+@test "temp dir is removed on success" {
+  run "$SCRIPT" "$BIN"
+  [ "$status" -eq 0 ]
+  [ -z "$(ls -A "$TMPDIR")" ]
+}
+
+@test "temp dir is removed on failure" {
+  FAKE_NOTARY_STATUS=Invalid run "$SCRIPT" "$BIN"
+  [ "$status" -ne 0 ]
+  [ -z "$(ls -A "$TMPDIR")" ]
+}
+
+@test "TERM during notarization cleans up" {
+  FAKE_NOTARY_HANG=1 "$SCRIPT" "$BIN" >/dev/null 2>&1 &
+  script_pid=$!
+  for _ in $(seq 1 100); do
+    [ -s "${FAKE_LOG}.pid" ] && break
+    sleep 0.1
+  done
+  [ -s "${FAKE_LOG}.pid" ]
+  kill -TERM "$script_pid"
+  kill -TERM "$(cat "${FAKE_LOG}.pid")"
+  rc=0
+  wait "$script_pid" || rc=$?
+  [ "$rc" -ne 0 ]
+  grep -q "^security delete-keychain" "$FAKE_LOG"
+  [ "$(wc -l <"$FAKE_STATE" | tr -d ' ')" = 2 ]
+  [ -z "$(ls -A "$TMPDIR")" ]
 }
