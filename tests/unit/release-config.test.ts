@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { runTbx } from '../../tbx/src/index.ts';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const RELEASE_PLEASE_VERSION = '17.3.0';
+const RELEASE_PLEASE_VERSION = '17.11.2';
 
 interface Config {
   'separate-pull-requests': boolean;
