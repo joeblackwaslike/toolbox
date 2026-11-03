@@ -55,6 +55,7 @@ export const RESERVED_COMMANDS: ReadonlySet<string> = new Set([
   'uninstall',
   'verify',
   'update',
+  'stamp',
   'doctor',
 ]);
 

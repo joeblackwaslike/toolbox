@@ -16,6 +16,7 @@ import { install, installedToolFor, uninstall } from './commands/install.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
+import { stamp } from './commands/stamp.ts';
 import { update } from './commands/update.ts';
 import { verify } from './commands/verify.ts';
 import { type TbxContext, isCi } from './context.ts';
@@ -112,6 +113,16 @@ function addReleaseCommands(program: Command, run: Runner): void {
       run(command, async (ctx) => {
         await update(ctx, { ...(name === undefined ? {} : { name }), ...options });
       }),
+    );
+  program
+    .command('stamp')
+    .description(
+      'Refresh the .shared-stamp files that trigger releases when bundled shared code changes',
+    )
+    .option('--write', 'Rewrite stale stamps and print the components that changed')
+    .option('--check', 'Write nothing; exit 1 when a stamp is stale')
+    .action((options: { write?: boolean; check?: boolean }, command: Command) =>
+      run(command, (ctx) => stamp(ctx, options)),
     );
   program
     .command('verify')
