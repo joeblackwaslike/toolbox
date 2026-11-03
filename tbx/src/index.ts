@@ -16,6 +16,7 @@ import { install, installedToolFor, uninstall } from './commands/install.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
+import { update } from './commands/update.ts';
 import { verify } from './commands/verify.ts';
 import { type TbxContext, isCi } from './context.ts';
 import { tbxPaths } from './state.ts';
@@ -98,6 +99,19 @@ function addReleaseCommands(program: Command, run: Runner): void {
     )
     .action((name: string, options: { index?: string }, command: Command) =>
       run(command, (ctx) => install(ctx, name, options)),
+    );
+  program
+    .command('update')
+    .description('Install newer versions of installed tools from a release index')
+    .argument('[name]', 'Tool name (default: every installed tool)')
+    .option(
+      '--index <path|url>',
+      'Release index.json path or URL (default: $TBX_INDEX, else the GitHub release index)',
+    )
+    .action((name: string | undefined, options: { index?: string }, command: Command) =>
+      run(command, async (ctx) => {
+        await update(ctx, { ...(name === undefined ? {} : { name }), ...options });
+      }),
     );
   program
     .command('verify')

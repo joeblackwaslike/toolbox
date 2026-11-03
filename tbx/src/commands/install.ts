@@ -297,7 +297,8 @@ export function defaultIndex(env: Env): string {
   return override === undefined || override === '' ? DEFAULT_INDEX_URL : override;
 }
 
-function resolveIndex(source: string): string {
+/** Turns an `--index` value into a URL, or an absolute path for a local file. */
+export function resolveIndex(source: string): string {
   return /^(https?|file):/i.test(source) ? source : path.resolve(source);
 }
 
