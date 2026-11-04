@@ -45,3 +45,32 @@ host_target() {
   HOME="$home" XDG_DATA_HOME="$home/data" XDG_STATE_HOME="$home/state" XDG_CONFIG_HOME="$home/config" run "$bin" list
   [ "$status" -eq 0 ]
 }
+
+fake_bun() {
+  mkdir -p "${BATS_TEST_TMPDIR}/fakebin" "${BATS_TEST_TMPDIR}/cwd"
+  cat >"${BATS_TEST_TMPDIR}/fakebin/bun" <<'FAKE'
+#!/usr/bin/env bash
+[[ "$1" == "--version" ]] && { cat "$(dirname "$0")/../../../../../.bun-version" 2>/dev/null || echo 0; exit 0; }
+touch ".fake-00000000.bun-build"
+[[ -n "${FAKE_BUN_FAIL:-}" ]] && exit 1
+while [[ $# -gt 0 ]]; do [[ "$1" == "--outfile" ]] && touch "$2"; shift; done
+FAKE
+  chmod +x "${BATS_TEST_TMPDIR}/fakebin/bun"
+}
+
+@test "leaves no .bun-build file in the cwd after a successful compile" {
+  fake_bun
+  cd "${BATS_TEST_TMPDIR}/cwd"
+  PATH="${BATS_TEST_TMPDIR}/fakebin:${PATH}" run "$SCRIPT" "${BATS_TEST_TMPDIR}/rel-out"
+  [ "$status" -eq 0 ]
+  [ -f "${BATS_TEST_TMPDIR}/rel-out/tbx-linux-x64" ]
+  [ -z "$(ls -A1 . | grep 'bun-build')" ]
+}
+
+@test "leaves no .bun-build file in the cwd after a failed compile" {
+  fake_bun
+  cd "${BATS_TEST_TMPDIR}/cwd"
+  FAKE_BUN_FAIL=1 PATH="${BATS_TEST_TMPDIR}/fakebin:${PATH}" run "$SCRIPT" "${BATS_TEST_TMPDIR}/rel-out"
+  [ "$status" -ne 0 ]
+  [ -z "$(ls -A1 . | grep 'bun-build')" ]
+}
