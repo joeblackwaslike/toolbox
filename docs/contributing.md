@@ -87,7 +87,7 @@ pnpm test tests/e2e/cross-tool.test.ts
 
 ## Releasing
 
-Conventional Commits drive each tool's version through release-please. It opens one release PR per changed tool and tags the merge `<component>-v<version>`; `tbx/` releases as `tbx-cli`. A `Release-As:` footer in a commit overrides the computed bump.
+Conventional Commits drive each tool's version through release-please. It opens one release PR per changed tool and, when that PR merges, tags the release `<component>-v<version>`. The `tbx/` directory releases as `tbx-cli`. A `Release-As:` footer in a commit overrides the computed bump.
 
 Tools bundle the shared code, so on each push to main the stamp job runs `tbx stamp --write` and commits the result as `fix(<component>): bundle updated shared`. Run `pnpm tbx stamp --check` locally to see whether a stamp is stale.
 
