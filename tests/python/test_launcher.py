@@ -2,6 +2,7 @@ import hashlib
 import http.server
 import importlib
 import os
+import platform
 import subprocess
 import sys
 import threading
@@ -169,6 +170,31 @@ def test_redirect_within_allowed_hosts_is_followed(env):
     r = run(env, "x")
     assert r.returncode == 0
     assert Handler.hits == 2
+
+
+def test_unreadable_cache_fails_with_context_instead_of_downloading(env, rendered, monkeypatch):
+    monkeypatch.syspath_prepend(str(rendered / "pypi/src"))
+    tbx_cli = importlib.import_module("tbx_cli")
+    asset = tbx_cli.asset_name(sys.platform, platform.machine(), platform.libc_ver()[0])
+    target = Path(env["XDG_CACHE_HOME"]) / "tbx" / VERSION / asset
+    target.mkdir(parents=True)
+    r = run(env, "x")
+    assert r.returncode != 0
+    assert "Traceback" not in r.stderr
+    assert "cannot read cached binary" in r.stderr
+    assert Handler.hits == 0
+
+
+def test_exec_of_non_executable_cached_binary_fails_with_context(env):
+    assert run(env, "a").returncode == 0
+    (cached_file,) = cached(env)
+    cached_file.chmod(0o644)
+    Handler.hits = 0
+    r = run(env, "b")
+    assert r.returncode != 0
+    assert "Traceback" not in r.stderr
+    assert "cannot run" in r.stderr
+    assert Handler.hits == 0
 
 
 def test_too_many_redirects_fails_clearly(env):

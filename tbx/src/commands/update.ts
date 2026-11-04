@@ -24,15 +24,24 @@ const CORE_PARTS = 3;
 const NUMERIC_IDENTIFIER = /^\d+$/;
 
 /** Strips SemVer build metadata (`+...`), then splits the core from dot-separated prerelease identifiers. */
-function parse(version: string): { core: number[]; pre: string[] } {
+function parse(version: string): { core: string[]; pre: string[] } {
   const [core = '', ...rest] = version.split('+')[0]?.split('-') ?? [];
   const pre = rest.join('-');
-  return { core: core.split('.').map(Number), pre: pre === '' ? [] : pre.split('.') };
+  return { core: core.split('.'), pre: pre === '' ? [] : pre.split('.') };
 }
 
-function compareCore(a: number[], b: number[]): number {
+/** Compares two numeric identifier strings by magnitude, without a lossy `Number` conversion. */
+function compareNumeric(a: string, b: string): number {
+  return BigInt(a === '' ? '0' : a) < BigInt(b === '' ? '0' : b)
+    ? -1
+    : BigInt(a === '' ? '0' : a) > BigInt(b === '' ? '0' : b)
+      ? 1
+      : 0;
+}
+
+function compareCore(a: string[], b: string[]): number {
   for (let part = 0; part < CORE_PARTS; part += 1) {
-    const diff = (a[part] ?? 0) - (b[part] ?? 0);
+    const diff = compareNumeric(a[part] ?? '0', b[part] ?? '0');
     if (diff !== 0) return diff;
   }
   return 0;
@@ -42,7 +51,7 @@ function compareCore(a: number[], b: number[]): number {
 function compareIdentifier(a: string, b: string): number {
   const aNumeric = NUMERIC_IDENTIFIER.test(a);
   const bNumeric = NUMERIC_IDENTIFIER.test(b);
-  if (aNumeric && bNumeric) return Number(a) - Number(b);
+  if (aNumeric && bNumeric) return compareNumeric(a, b);
   if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -87,18 +96,20 @@ async function updateOne(
   name: string,
   from: string,
 ): Promise<UpdateResult> {
-  const latest = entries.find((tool) => tool.name === name)?.version;
-  if (latest === undefined || !isNewer(latest, from)) return { name, from, to: null };
-  await installTool({
+  const entry = entries.find((tool) => tool.name === name);
+  if (entry === undefined || !isNewer(entry.version, from)) return { name, from, to: null };
+  const installed = await installTool({
     name,
     index,
+    entry,
+    skipUnless: isNewer,
     home: ctx.home,
     env: ctx.env,
     warn: (message) => {
       ctx.out.info(message);
     },
   });
-  return { name, from, to: latest };
+  return installed ? { name, from, to: entry.version } : { name, from, to: null };
 }
 
 /**

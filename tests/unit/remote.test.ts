@@ -37,6 +37,10 @@ beforeAll(async () => {
       res.writeHead(302, { Location: `${base}/demo.tar.gz` }).end();
     } else if (req.url === '/redirect-loop') {
       res.writeHead(302, { Location: `${base}/redirect-loop` }).end();
+    } else if (req.url === '/truncated') {
+      res.writeHead(200, { 'Content-Length': '1000000' });
+      res.write(BODY);
+      res.destroy();
     } else {
       res.writeHead(404).end('nope');
     }
@@ -94,7 +98,9 @@ describe('fetchIndex', () => {
   });
 
   it('fails clearly after too many redirects', async () => {
-    const error = await rejection(fetchArtifact(entry(`${base}/redirect-loop`), `${base}/index.json`));
+    const error = await rejection(
+      fetchArtifact(entry(`${base}/redirect-loop`), `${base}/index.json`),
+    );
     expect(error.message).toMatch(/too many redirects/);
   });
 });
@@ -120,6 +126,12 @@ describe('fetchArtifact', () => {
 
   it('rejects a non-2xx status', async () => {
     await rejection(fetchArtifact(entry(`${base}/gone.tar.gz`), `${base}/index.json`));
+  });
+
+  it('surfaces a truncated body as a ToolError naming the URL', async () => {
+    const error = await rejection(fetchArtifact(entry(`${base}/truncated`), `${base}/index.json`));
+    expect(error.code).toBe(ExitCode.unavailable);
+    expect(error.message).toContain(`${base}/truncated`);
   });
 
   it('rejects an absolute URL artifact when the index is local', async () => {

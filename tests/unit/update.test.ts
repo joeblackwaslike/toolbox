@@ -1,4 +1,6 @@
 import { writeFile } from 'node:fs/promises';
+import { type Server, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
@@ -88,12 +90,75 @@ describe('tbx update', () => {
     );
   });
 
+  it('compares prerelease identifiers beyond Number.MAX_SAFE_INTEGER without rounding', async () => {
+    const { box, ctx } = await setup('1.0.0-9007199254740992');
+    expect(
+      (await update(ctx, { index: await publish(box, '1.0.0-9007199254740993') }))[0]?.to,
+    ).toBe('1.0.0-9007199254740993');
+  });
+
+  it('compares core versions above the safe integer range without rounding', async () => {
+    const { box, ctx } = await setup('9007199254740992.0.0');
+    expect((await update(ctx, { index: await publish(box, '9007199254740993.0.0') }))[0]?.to).toBe(
+      '9007199254740993.0.0',
+    );
+  });
+
   it('exits config for a tool that is not installed', async () => {
     const { box, ctx } = await setup('0.1.0');
     const index = await publish(box, '0.2.0');
     const error = await update(ctx, { name: 'unknown', index }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ToolError);
     expect(error).toMatchObject({ code: ExitCode.config });
+  });
+
+  it('installs the exact version it compared even if the index rolls back before the artifact fetch', async () => {
+    const { ctx } = await setup('1.0.0');
+    const artifacts = new Map([
+      ['2.0.0', packTar(members('2.0.0'))],
+      ['1.0.0', packTar(members('1.0.0'))],
+    ]);
+    let hits = 0;
+    const indexBody = (): string => {
+      const version = hits === 0 ? '2.0.0' : '1.0.0';
+      hits += 1;
+      const bytes = artifacts.get(version) as Buffer;
+      return JSON.stringify({
+        tools: [{ name: 'hello', version, artifact: `/${version}.tar.gz`, sha256: sha256(bytes) }],
+      });
+    };
+    const server: Server = createServer((req, res) => {
+      if (req.url === '/index.json') {
+        res.end(indexBody());
+        return;
+      }
+      const artifact = req.url ? artifacts.get(req.url.replace(/^\/|\.tar\.gz$/g, '')) : undefined;
+      if (artifact === undefined) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.end(artifact);
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const index = `http://127.0.0.1:${port}/index.json`;
+      expect(await update(ctx, { index })).toEqual([{ name: 'hello', from: '1.0.0', to: '2.0.0' }]);
+      expect(await installedVersion(ctx)).toBe('2.0.0');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('never downgrades when two updates race for the install lock', async () => {
+    const { box, ctx } = await setup('1.0.0');
+    const index = await publish(box, '2.0.0');
+    const second = context(box.home);
+    const [a, b] = await Promise.all([update(ctx, { index }), update(second, { index })]);
+    const outcomes = [a[0]?.to, b[0]?.to];
+    expect(outcomes.every((to) => to === '2.0.0' || to === null)).toBe(true);
+    expect(outcomes).toContain('2.0.0');
+    expect(await installedVersion(ctx)).toBe('2.0.0');
   });
 
   it('considers every installed tool when no name is given', async () => {

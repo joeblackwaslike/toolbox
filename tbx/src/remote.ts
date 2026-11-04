@@ -53,7 +53,13 @@ async function download(href: string): Promise<Buffer> {
   if (!response.ok) {
     throw new ToolError(`cannot fetch ${href}: HTTP ${response.status}`, ExitCode.unavailable);
   }
-  return Buffer.from(await response.arrayBuffer());
+  try {
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    throw new ToolError(`cannot fetch ${href}: ${messageOf(error)}`, ExitCode.unavailable, {
+      cause: error,
+    });
+  }
 }
 
 function localPath(source: string): string {

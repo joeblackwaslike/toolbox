@@ -103,8 +103,13 @@ def main() -> None:
     target = cache_root / "tbx" / VERSION / asset
     try:
         cached_ok = _sha256(target.read_bytes()) == expected
-    except OSError:
+    except FileNotFoundError:
         cached_ok = False
+    except OSError as err:
+        _fail(f"cannot read cached binary {target}: {err}")
     if not cached_ok:
         _install(asset, expected, target)
-    os.execv(target, [str(target), *sys.argv[1:]])  # noqa: S606
+    try:
+        os.execv(target, [str(target), *sys.argv[1:]])  # noqa: S606
+    except OSError as err:
+        _fail(f"cannot run {target}: {err}")

@@ -33,8 +33,8 @@ const NO_ENV = {};
 let box: Sandbox;
 let paths: ReturnType<typeof layout>;
 
-function install(index: string, extra: { lockTimeoutMs?: number } = {}): Promise<void> {
-  return installTool({ name: TOOL, index, home: box.home, env: NO_ENV, ...extra });
+async function install(index: string, extra: { lockTimeoutMs?: number } = {}): Promise<void> {
+  await installTool({ name: TOOL, index, home: box.home, env: NO_ENV, ...extra });
 }
 
 async function installedVersion(): Promise<string | undefined> {

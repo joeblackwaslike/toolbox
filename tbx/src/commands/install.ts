@@ -50,6 +50,14 @@ export interface InstallOptions {
   lockTimeoutMs?: number;
   /** Receives warnings such as a skipped unit validator; defaults to stderr. */
   warn?: (message: string) => void;
+  /** Already-selected index entry to install; skips re-fetching and re-selecting from the index. */
+  entry?: IndexEntry;
+  /**
+   * When set, re-checks under the install lock that `entry`'s version is strictly newer than the
+   * currently installed one (by this comparator) and skips the install otherwise, so a concurrent
+   * or rolled-back index can never downgrade an installation.
+   */
+  skipUnless?: (entryVersion: string, installedVersion: string) => boolean;
 }
 
 function fault(options: { faultAt?: FaultPoint }, point: FaultPoint): void {
@@ -181,7 +189,14 @@ async function installLocked(
   entry: IndexEntry,
   paths: TbxPaths,
   options: InstallOptions,
-): Promise<void> {
+): Promise<boolean> {
+  if (options.skipUnless) {
+    const state = await readState(paths);
+    const installed = recordOf(state, entry.name);
+    if (installed !== undefined && !options.skipUnless(entry.version, installed.version)) {
+      return false;
+    }
+  }
   const bytes = await fetchArtifact(entry, options.index);
   await rm(paths.staging, { recursive: true, force: true });
   await mkdir(paths.staging, { recursive: true, mode: EXECUTABLE_MODE });
@@ -197,6 +212,7 @@ async function installLocked(
   } finally {
     await rm(stage, { recursive: true, force: true });
   }
+  return true;
 }
 
 /**
@@ -215,11 +231,15 @@ async function installLocked(
  * mismatch or an unsafe artifact (1), a manifest mismatch (78), or an unsupported platform or
  * held lock (69).
  */
-export async function installTool(options: InstallOptions): Promise<void> {
+export async function installTool(options: InstallOptions): Promise<boolean> {
   assertToolName(options.name);
-  const entry = await findEntry(options.index, options.name);
+  const entry = options.entry ?? (await findEntry(options.index, options.name));
   const paths = tbxPaths(options.home, envOf(options));
-  await withLock(paths.lockFile, () => installLocked(entry, paths, options), options.lockTimeoutMs);
+  return withLock(
+    paths.lockFile,
+    () => installLocked(entry, paths, options),
+    options.lockTimeoutMs,
+  );
 }
 
 /**
