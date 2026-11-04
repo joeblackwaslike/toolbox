@@ -155,6 +155,16 @@ readonly CLI_JOBS=(cli-build sign-macos smoke cli-upload publish-npm publish-pyp
   [ "$output" = "Upload the binaries and packages, then checksums.txt last" ]
 }
 
+@test "index runs after tool-release finished, even with a failed leg, but never when it was skipped or cancelled" {
+  [ "$(if_of index)" = "!cancelled() && (needs.tool-release.result == 'success' || needs.tool-release.result == 'failure')" ]
+  [[ "$(needs_of index)" == *'"tool-release"'* ]]
+}
+
+@test "index adds tools through index-released-tools.sh, which skips tags without a tarball" {
+  q '[.jobs.index.steps[] | .run // "" | select(contains("scripts/index-released-tools.sh \"$TOOLS\""))] | length == 1'
+  q '[.jobs.index.steps[] | .run // "" | select(contains("publish-index.sh"))] | length == 0'
+}
+
 @test "only tool releases drop the repo-wide latest label" {
   run jq -r '.jobs | to_entries[] | select([.value.steps[]? | .run // "" | contains("release-not-latest.sh")] | any) | .key' "$WORKFLOW_JSON"
   [ "$output" = tool-release ]

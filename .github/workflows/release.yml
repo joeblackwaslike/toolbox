@@ -210,7 +210,8 @@ jobs:
 
   index:
     needs: [resolve, tool-release]
-    if: ${{ !cancelled() && needs.tool-release.result == 'success' }}
+    # A failed tool-release leg must not block the index for the tools that did upload.
+    if: ${{ !cancelled() && (needs.tool-release.result == 'success' || needs.tool-release.result == 'failure') }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     permissions:
@@ -228,13 +229,7 @@ jobs:
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-        run: |
-          while read -r name version tag; do
-            file="${name}-${version}.tar.gz"
-            sha256=$(gh release download "$tag" --pattern "${file}.sha256" --output - </dev/null | cut -d ' ' -f 1)
-            scripts/publish-index.sh "$name" "$version" \
-              "https://github.com/${GH_REPO}/releases/download/${tag}/${file}" "$sha256" </dev/null
-          done < <(jq -r '.[] | "\(.component) \(.version) \(.tag)"' <<<"$TOOLS")
+        run: scripts/index-released-tools.sh "$TOOLS"
 
   # A tbx-cli release with checksums.txt is complete: cli-build reports `complete`, the build, sign,
   # smoke and upload work is skipped, and the publish jobs read checksums.txt from the release.
