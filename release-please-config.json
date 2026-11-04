@@ -5,11 +5,13 @@
   "packages": {
     "tbx": {
       "component": "tbx-cli",
-      "release-type": "simple"
+      "release-type": "simple",
+      "initial-version": "0.1.0"
     },
     "tools/transcribe": {
       "component": "transcribe",
       "release-type": "simple",
+      "initial-version": "0.1.0",
       "extra-files": [
         {
           "type": "toml",

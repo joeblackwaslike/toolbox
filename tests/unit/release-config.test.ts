@@ -15,6 +15,7 @@ interface Config {
     {
       component: string;
       'release-type': string;
+      'initial-version'?: string;
       'extra-files'?: { type: string; path: string; jsonpath: string }[];
     }
   >;
@@ -41,14 +42,22 @@ describe(`release-please ${RELEASE_PLEASE_VERSION} config`, () => {
     expect(config['bootstrap-sha']).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it('configures tbx as tbx-cli with a version.txt', async () => {
+  // A manifest version other than 0.0.0 counts as already released and gets bumped, so every
+  // package starts at 0.0.0 and initial-version sets its first release.
+  it('configures tbx as tbx-cli whose first release is version.txt', async () => {
     const config = await json<Config>('release-please-config.json');
     const manifest = await json<Record<string, string>>('.release-please-manifest.json');
-    expect(config.packages.tbx).toMatchObject({ component: 'tbx-cli', 'release-type': 'simple' });
-    expect(manifest.tbx).toBe('0.1.0');
+    const version = (await readFile(`${ROOT}tbx/version.txt`, 'utf8')).trim();
+    expect(config.packages.tbx).toMatchObject({
+      component: 'tbx-cli',
+      'release-type': 'simple',
+      'initial-version': '0.1.0',
+    });
+    expect(version).toBe('0.1.0');
+    expect(manifest.tbx).toBe('0.0.0');
   });
 
-  it('configures every tool with its tool.toml version', async () => {
+  it('configures every tool to release its tool.toml version first', async () => {
     const config = await json<Config>('release-please-config.json');
     const manifest = await json<Record<string, string>>('.release-please-manifest.json');
     const versions = await toolVersions();
@@ -57,9 +66,10 @@ describe(`release-please ${RELEASE_PLEASE_VERSION} config`, () => {
       expect(config.packages[`tools/${name}`]).toMatchObject({
         component: name,
         'release-type': 'simple',
+        'initial-version': version,
         'extra-files': [{ type: 'toml', path: 'tool.toml', jsonpath: '$.version' }],
       });
-      expect(manifest[`tools/${name}`]).toBe(version);
+      expect(manifest[`tools/${name}`]).toBe('0.0.0');
     }
   });
 
