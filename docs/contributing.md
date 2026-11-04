@@ -47,7 +47,7 @@ pnpm tbx build <name>      # or: pnpm tbx build all
 pnpm tbx install <name>    # or: pnpm tbx install all
 ```
 
-`build` writes the artifacts and `dist/release/index.json`. `install` reads that index, puts the tool under `~/.local/share/tbx/tools/<name>/<version>/` and links `~/.local/share/tbx/bin/<name>` (and its alias) to it. `$XDG_DATA_HOME` moves both directories, and `$TBX_BIN_DIR` moves the links. Add the bin directory to PATH once, for example in `~/.zshrc`:
+`build` writes the artifacts and `dist/release/index.json`. `tbx install` and `tbx update` default to the remote index on the `release-index` branch (`https://raw.githubusercontent.com/joeblackwaslike/toolbox/release-index/index.json`), which `--index` or `TBX_INDEX` overrides. For a local build, pass `--index dist/release/index.json`. `install` puts the tool under `~/.local/share/tbx/tools/<name>/<version>/` and links `~/.local/share/tbx/bin/<name>` (and its alias) to it. `$XDG_DATA_HOME` moves both directories, and `$TBX_BIN_DIR` moves the links. Add the bin directory to PATH once, for example in `~/.zshrc`:
 
 ```sh
 export PATH="$HOME/.local/share/tbx/bin:$PATH"
@@ -84,6 +84,22 @@ pnpm test tests/e2e/cross-tool.test.ts
 ## CI
 
 `.github/workflows/ci.yml` runs on pull requests and on pushes to main, on two arm64 runners, `macos-15` and `ubuntu-24.04-arm`: `just gen-check`, `just lint`, `just test`, then `pnpm tbx verify --all`, with `CI=1`.
+
+## Releasing
+
+Conventional Commits drive each tool's version through release-please. It opens one release PR per changed tool and tags the merge `<component>-v<version>`; `tbx/` releases as `tbx-cli`. A `Release-As:` footer in a commit overrides the computed bump.
+
+Tools bundle the shared code, so after a release PR merges, the stamp job runs `tbx stamp --write` and commits the result as `fix(<component>): bundle updated shared`. Run `pnpm tbx stamp --check` locally to see whether a stamp is stale.
+
+`release.yml` is the only publishing path. It builds and signs the binaries, publishes to GitHub Releases, npm, PyPI and the Homebrew tap, and updates the `release-index` branch. To recover a failed release, dispatch `release.yml` with the `tags` input set to the tag. A rerun reuses a complete release and replaces the partial assets of an incomplete one.
+
+The workflow needs these repository secrets: `NPM_TOKEN`, `HOMEBREW_TAP_TOKEN`, and the five macOS signing secrets. PyPI uses a trusted publisher bound to workflow `release.yml` and environment `pypi`, so it needs no token. The `sign-check.yml` workflow is a manual check of macOS signing and notarization; dispatch it after changing the signing steps.
+
+Users install a tool with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/joeblackwaslike/toolbox/main/install.sh | sh -s -- <tool>
+```
 
 ## Git hooks
 
