@@ -91,7 +91,7 @@ Conventional Commits drive each tool's version through release-please. It opens 
 
 Tools bundle the shared code, so on each push to main the stamp job runs `tbx stamp --write` and commits the result as `fix(<component>): bundle updated shared`. Run `pnpm tbx stamp --check` locally to see whether a stamp is stale.
 
-`release.yml` is the only publishing path. It builds and signs the binaries, creates the GitHub releases, publishes to npm, PyPI and the Homebrew tap, and updates the `release-index` branch. To recover a failed release, dispatch `release.yml` with the `tags` input set to the tag. A rerun reuses a complete release and replaces the partial assets of an incomplete one.
+`release.yml` is the only publishing path. It builds and signs the binaries, creates the GitHub releases, publishes to npm, PyPI and the Homebrew tap, and updates the `release-index` branch. To recover a failed run, dispatch `release.yml` with the `tags` input set to every tag that run created; it accepts several tool tags and at most one `tbx-cli` tag. A rerun reuses a complete release and replaces the partial assets of an incomplete one. If GitHub retires the `macos-15-intel` runner label, the smoke job queues forever and holds the `release` concurrency group; cancel the run, change that leg's runner in `release.yml`, and dispatch the run's tags again.
 
 The workflow needs these repository secrets: `NPM_TOKEN`, `HOMEBREW_TAP_TOKEN`, and the five macOS signing secrets. PyPI uses a trusted publisher bound to workflow `release.yml` and environment `pypi`, so it needs no token. The `sign-check.yml` workflow is a manual check of macOS signing and notarization; dispatch it after changing the signing steps.
 
