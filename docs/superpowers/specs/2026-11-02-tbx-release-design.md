@@ -89,7 +89,7 @@ This is new code, not a change of default. Today `tbx install` only reads artifa
 
 ### The installer
 
-`install.sh` at the repo root, served from `raw.githubusercontent.com` at a release tag. It detects OS, architecture and libc, exits with a clear message on musl, downloads the matching `tbx` binary from the newest release whose tag starts with `tbx-cli-v` and that has a `checksums.txt` asset (found with the unauthenticated releases API, so an incomplete release is skipped in favor of the previous one), verifies it against `checksums.txt`, installs it to `~/.local/share/tbx/bin`, adds that to PATH for the user's shell, and runs `tbx install` for any tool names passed as arguments. It needs only `curl`, `sh`, `uname` and `shasum` or `sha256sum`.
+`install.sh` at the repo root, served from `raw.githubusercontent.com` on `main`. It detects OS, architecture and libc, exits with a clear message on musl, downloads the matching `tbx` binary from the newest release whose tag starts with `tbx-cli-v` and that has a `checksums.txt` asset (found with the unauthenticated releases API, so an incomplete release is skipped in favor of the previous one), verifies it against `checksums.txt`, installs it to `~/.local/share/tbx/bin`, adds that to PATH for the user's shell, and runs `tbx install` for any tool names passed as arguments. It needs only `curl`, `sh`, `uname` and `shasum` or `sha256sum`.
 
 ### Packages
 
@@ -144,7 +144,6 @@ Release-please runs before anything is built, so a build failure leaves a tag wi
 - Switching npm to a Trusted Publisher and deleting `NPM_TOKEN`.
 - Exporting the Developer ID Application certificate as a `.p12` and creating an App Store Connect API key (Joe's Apple login), then `gh secret set` for the five signing secrets.
 - Adding a PyPI trusted publisher for `tbx-cli` bound to workflow `release.yml` and environment `pypi` (Joe's PyPI login).
-- Rotating the token in `~/bin/glm-claude`.
 
 ## Left to the builder
 
