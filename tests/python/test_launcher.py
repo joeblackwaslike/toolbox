@@ -21,12 +21,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
     body = STUB
     hits = 0
     truncate = False
+    redirect_target = None
 
     def do_GET(self):
         """Serve the stub for release asset paths."""
         type(self).hits += 1
+        if self.path == "/second":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(type(self).body)
+            return
+        if self.path == "/loop":
+            self.send_response(302)
+            self.send_header("Location", "/loop")
+            self.end_headers()
+            return
         if not self.path.startswith(f"/tbx-cli-v{VERSION}/tbx-"):
             self.send_response(404)
+            self.end_headers()
+            return
+        if type(self).redirect_target is not None:
+            self.send_response(302)
+            self.send_header("Location", type(self).redirect_target)
             self.end_headers()
             return
         self.send_response(200)
@@ -61,6 +77,7 @@ def env(tmp_path, rendered):
     Handler.body = STUB
     Handler.hits = 0
     Handler.truncate = False
+    Handler.redirect_target = None
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield {
@@ -135,6 +152,31 @@ def test_truncated_download_fails_cleanly(env):
     assert "Traceback" not in r.stderr
     assert "download failed" in r.stderr
     assert cached(env) == []
+
+
+def test_redirect_to_non_loopback_is_refused_before_second_request(env):
+    Handler.redirect_target = "http://example.com/elsewhere"
+    r = run(env, "x")
+    assert r.returncode != 0
+    assert "refusing a redirect" in r.stderr
+    assert Handler.hits == 1
+    assert cached(env) == []
+
+
+def test_redirect_within_allowed_hosts_is_followed(env):
+    base = env["TBX_DOWNLOAD_BASE"]
+    Handler.redirect_target = f"{base}/second"
+    r = run(env, "x")
+    assert r.returncode == 0
+    assert Handler.hits == 2
+
+
+def test_too_many_redirects_fails_clearly(env):
+    Handler.redirect_target = "/loop"
+    r = run(env, "x")
+    assert r.returncode != 0
+    assert "Traceback" not in r.stderr
+    assert "download failed" in r.stderr
 
 
 def test_only_https_final_urls_or_loopback_http(rendered, monkeypatch):

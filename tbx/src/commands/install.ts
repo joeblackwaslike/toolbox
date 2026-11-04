@@ -378,9 +378,10 @@ function bulkFailure(failed: { name: string; error: unknown }[]): ToolError {
   return new ToolError(`install failed: ${failed.map((tool) => tool.name).join(', ')}`, code);
 }
 
+/** Every tool name in the index, once each, in first-seen (newest-first) order. */
 async function indexNames(index: string): Promise<string[]> {
   const entries = await fetchIndex(index);
-  return entries.map((entry) => entry.name);
+  return [...new Set(entries.map((entry) => entry.name))];
 }
 
 /**

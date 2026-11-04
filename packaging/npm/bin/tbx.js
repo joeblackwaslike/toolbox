@@ -71,12 +71,24 @@ function downloadBase() {
 }
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+const MAX_REDIRECTS = 5;
+
+async function fetchSecure(href) {
+  let url = href;
+  for (let hop = 0; ; hop += 1) {
+    if (!isAllowedUrl(url)) throw new Error(`refusing a redirect to ${url}`);
+    const res = await fetch(url, { signal: AbortSignal.timeout(60000), redirect: 'manual' });
+    const location = res.headers.get('location');
+    if (res.status < 300 || res.status >= 400 || location === null) return res;
+    if (hop >= MAX_REDIRECTS) throw new Error('too many redirects');
+    url = new URL(location, url).href;
+  }
+}
 
 async function download(url) {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    const res = await fetchSecure(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    if (!isAllowedUrl(res.url)) throw new Error(`refusing a redirect to ${res.url}`);
     return Buffer.from(await res.arrayBuffer());
   } catch (err) {
     throw new Error(`download failed: ${url}: ${err.message}`);
@@ -126,7 +138,8 @@ async function main() {
   let cachedOk = false;
   try {
     cachedOk = sha256(fs.readFileSync(target)) === expected;
-  } catch {
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw new Error(`cannot read cached binary ${target}: ${err.message}`);
     cachedOk = false;
   }
 

@@ -66,6 +66,28 @@ describe('tbx update', () => {
     expect((await update(ctx, { index: release }))[0]?.to).toBe('0.10.1');
   });
 
+  it('ignores build metadata when comparing versions', async () => {
+    const { box, ctx } = await setup('1.0.0+build.1');
+    expect((await update(ctx, { index: await publish(box, '1.0.1') }))[0]?.to).toBe('1.0.1');
+  });
+
+  it('treats differing build metadata on an equal core as current', async () => {
+    const { box, ctx } = await setup('1.0.0+a');
+    expect((await update(ctx, { index: await publish(box, '1.0.0+b') }))[0]?.to).toBe(null);
+  });
+
+  it('ranks a pre-release below its release regardless of metadata', async () => {
+    const { box, ctx } = await setup('1.0.0-rc.1');
+    expect((await update(ctx, { index: await publish(box, '1.0.0') }))[0]?.to).toBe('1.0.0');
+  });
+
+  it('compares numeric prerelease identifiers numerically, not lexically', async () => {
+    const { box, ctx } = await setup('1.0.0-rc.2');
+    expect((await update(ctx, { index: await publish(box, '1.0.0-rc.10') }))[0]?.to).toBe(
+      '1.0.0-rc.10',
+    );
+  });
+
   it('exits config for a tool that is not installed', async () => {
     const { box, ctx } = await setup('0.1.0');
     const index = await publish(box, '0.2.0');

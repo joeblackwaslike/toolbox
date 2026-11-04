@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { type Server, createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -19,6 +19,8 @@ let server: Server;
 let served = STUB;
 let hits = 0;
 let base: string;
+let truncate = false;
+let redirectTarget: string | null = null;
 
 const nodeRequire = createRequire(join(ROOT, 'package.json'));
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -78,8 +80,25 @@ beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'tbx-launcher-'));
   server = createServer((req, res) => {
     hits += 1;
+    if (req.url === '/retarget') {
+      res.writeHead(200).end(served);
+      return;
+    }
+    if (req.url === '/loop') {
+      res.writeHead(302, { Location: `${base}/loop` }).end();
+      return;
+    }
     if (!req.url?.startsWith(`/tbx-cli-v${VERSION}/tbx-`)) {
       res.writeHead(404).end();
+      return;
+    }
+    if (redirectTarget !== null) {
+      res.writeHead(302, { Location: redirectTarget }).end();
+      return;
+    }
+    if (truncate) {
+      res.writeHead(200, { 'Content-Length': '1000' });
+      res.end('short');
       return;
     }
     res.writeHead(200).end(served);
@@ -96,6 +115,8 @@ afterAll(() => {
 afterEach(() => {
   served = STUB;
   hits = 0;
+  truncate = false;
+  redirectTarget = null;
   rmSync(join(work, 'cache'), { recursive: true, force: true });
 });
 
@@ -173,6 +194,48 @@ describe('npm launcher', () => {
     expect(end).toEqual({ code: 3, signal: null });
     const pid = Number(readFileSync(join(work, 'child.pid'), 'utf8'));
     expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it('fails cleanly on a truncated download, caching nothing', async () => {
+    truncate = true;
+    const r = await run(render('truncated', STUB), ['x']);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/download failed/);
+    expect(cached()).toEqual([]);
+  });
+
+  it('refuses a redirect to a non-loopback host without making the second request', async () => {
+    redirectTarget = 'http://example.com/elsewhere';
+    const r = await run(render('redirect-bad', STUB), ['x']);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/refusing a redirect/);
+    expect(cached()).toEqual([]);
+  });
+
+  it('follows a redirect that stays within the allowed hosts', async () => {
+    const launcher = render('redirect-ok', STUB);
+    redirectTarget = `${base}/retarget`;
+    const r = await run(launcher, ['x']);
+    expect(r.status).toBe(0);
+  });
+
+  it('surfaces a non-ENOENT cache read error instead of silently re-downloading', async () => {
+    const launcher = render('cache-eisdir', STUB);
+    const { assetName } = nodeRequire(launcher);
+    const target = join(work, 'cache', 'tbx', VERSION, assetName());
+    mkdirSync(target, { recursive: true });
+    const r = await run(launcher, ['x']);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/cannot read cached binary/);
+    expect(hits).toBe(0);
+  });
+
+  it('fails clearly after too many redirects', async () => {
+    const launcher = render('redirect-loop', STUB);
+    redirectTarget = `${base}/loop`;
+    const r = await run(launcher, ['x']);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/too many redirects/);
   });
 
   it('only allows https final URLs, or http on loopback', () => {

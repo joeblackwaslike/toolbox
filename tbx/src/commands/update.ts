@@ -21,10 +21,13 @@ export interface UpdateOptions {
 }
 
 const CORE_PARTS = 3;
+const NUMERIC_IDENTIFIER = /^\d+$/;
 
-function parse(version: string): { core: number[]; pre: string } {
-  const [core = '', ...rest] = version.split('-');
-  return { core: core.split('.').map(Number), pre: rest.join('-') };
+/** Strips SemVer build metadata (`+...`), then splits the core from dot-separated prerelease identifiers. */
+function parse(version: string): { core: number[]; pre: string[] } {
+  const [core = '', ...rest] = version.split('+')[0]?.split('-') ?? [];
+  const pre = rest.join('-');
+  return { core: core.split('.').map(Number), pre: pre === '' ? [] : pre.split('.') };
 }
 
 function compareCore(a: number[], b: number[]): number {
@@ -35,15 +38,33 @@ function compareCore(a: number[], b: number[]): number {
   return 0;
 }
 
+/** SemVer precedence for one pair of dot-separated prerelease identifiers. */
+function compareIdentifier(a: string, b: string): number {
+  const aNumeric = NUMERIC_IDENTIFIER.test(a);
+  const bNumeric = NUMERIC_IDENTIFIER.test(b);
+  if (aNumeric && bNumeric) return Number(a) - Number(b);
+  if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** SemVer precedence for two prerelease identifier lists; no prerelease sorts above any prerelease. */
+function comparePre(a: string[], b: string[]): number {
+  if (a.length === 0 || b.length === 0) return Number(a.length === 0) - Number(b.length === 0);
+  const shared = Math.min(a.length, b.length);
+  for (let part = 0; part < shared; part += 1) {
+    const diff = compareIdentifier(a[part] ?? '', b[part] ?? '');
+    if (diff !== 0) return diff;
+  }
+  return a.length - b.length;
+}
+
 /** True when `candidate` is strictly newer than `current`; a pre-release sorts below its release. */
 function isNewer(candidate: string, current: string): boolean {
   const a = parse(candidate);
   const b = parse(current);
   const core = compareCore(a.core, b.core);
   if (core !== 0) return core > 0;
-  if (a.pre === b.pre) return false;
-  if (a.pre === '' || b.pre === '') return a.pre === '';
-  return a.pre.localeCompare(b.pre, 'en', { numeric: true }) > 0;
+  return comparePre(a.pre, b.pre) > 0;
 }
 
 function assertInstalled(name: string, installed: Record<string, unknown>): void {

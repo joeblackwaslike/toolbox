@@ -7,6 +7,7 @@ import os
 import platform
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -53,9 +54,21 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+class _RedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validates each redirect hop before following it, with a bounded hop count."""
+
+    max_redirections = 5
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+        if not is_allowed_url(newurl):
+            raise urllib.error.HTTPError(newurl, code, f"refusing a redirect to {newurl}", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch(url: str) -> bytes:
+    opener = urllib.request.build_opener(_RedirectHandler)
     try:
-        with urllib.request.urlopen(url, timeout=60) as res:  # noqa: S310
+        with opener.open(url, timeout=60) as res:
             if not is_allowed_url(res.geturl()):
                 _fail(f"download failed: {url}: refusing a redirect to {res.geturl()}")
             return res.read()

@@ -8,6 +8,7 @@ import { type IndexEntry, parseIndex, readIndex } from './commands/build.ts';
 
 const FETCH_TIMEOUT_MS = 60_000;
 const LOOPBACK = '127.0.0.1';
+const MAX_REDIRECTS = 5;
 
 function isUrl(source: string): boolean {
   return /^(https?|file):/i.test(source);
@@ -22,17 +23,33 @@ function assertSecure(url: URL): void {
   throw new ToolError(`${url.href}: only https: URLs are allowed`, ExitCode.config);
 }
 
-async function download(href: string): Promise<Buffer> {
-  assertSecure(new URL(href));
-  let response: Response;
-  try {
-    response = await fetch(href, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  } catch (error) {
-    throw new ToolError(`cannot fetch ${href}: ${messageOf(error)}`, ExitCode.unavailable, {
-      cause: error,
-    });
+/** Follows redirects manually, validating each hop's URL before requesting it. */
+async function fetchSecure(href: string): Promise<Response> {
+  let url = href;
+  for (let hop = 0; ; hop += 1) {
+    assertSecure(new URL(url));
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        redirect: 'manual',
+      });
+    } catch (error) {
+      throw new ToolError(`cannot fetch ${url}: ${messageOf(error)}`, ExitCode.unavailable, {
+        cause: error,
+      });
+    }
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || location === null) return response;
+    if (hop >= MAX_REDIRECTS) {
+      throw new ToolError(`${href}: too many redirects`, ExitCode.unavailable);
+    }
+    url = new URL(location, url).href;
   }
-  assertSecure(new URL(response.url || href));
+}
+
+async function download(href: string): Promise<Buffer> {
+  const response = await fetchSecure(href);
   if (!response.ok) {
     throw new ToolError(`cannot fetch ${href}: HTTP ${response.status}`, ExitCode.unavailable);
   }

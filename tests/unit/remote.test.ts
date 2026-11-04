@@ -19,18 +19,31 @@ function entry(artifact: string, hash = sha256(BODY)): IndexEntry {
   return { name: 'demo', version: '1.0.0', artifact, sha256: hash };
 }
 
+let secondHits = 0;
+let port: number;
+
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === '/index.json') {
       res.end(JSON.stringify({ tools: [entry(`${base}/demo.tar.gz`)] }));
     } else if (req.url === '/demo.tar.gz') {
       res.end(BODY);
+    } else if (req.url === '/redirect-to-insecure') {
+      res.writeHead(302, { Location: `http://localhost:${port}/second` }).end();
+    } else if (req.url === '/second') {
+      secondHits += 1;
+      res.end(BODY);
+    } else if (req.url === '/redirect-once') {
+      res.writeHead(302, { Location: `${base}/demo.tar.gz` }).end();
+    } else if (req.url === '/redirect-loop') {
+      res.writeHead(302, { Location: `${base}/redirect-loop` }).end();
     } else {
       res.writeHead(404).end('nope');
     }
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  port = (server.address() as AddressInfo).port;
+  base = `http://127.0.0.1:${port}`;
 });
 
 afterAll(() => {
@@ -67,6 +80,22 @@ describe('fetchIndex', () => {
   it('rejects http: for a host other than 127.0.0.1', async () => {
     const error = await rejection(fetchIndex('http://example.com/index.json'));
     expect(error.message).toContain('https');
+  });
+
+  it('refuses a redirect to a non-loopback host before requesting it', async () => {
+    secondHits = 0;
+    await rejection(fetchArtifact(entry(`${base}/redirect-to-insecure`), `${base}/index.json`));
+    expect(secondHits).toBe(0);
+  });
+
+  it('follows a redirect that stays within the allowed hosts', async () => {
+    const bytes = await fetchArtifact(entry(`${base}/redirect-once`), `${base}/index.json`);
+    expect(bytes.equals(BODY)).toBe(true);
+  });
+
+  it('fails clearly after too many redirects', async () => {
+    const error = await rejection(fetchArtifact(entry(`${base}/redirect-loop`), `${base}/index.json`));
+    expect(error.message).toMatch(/too many redirects/);
   });
 });
 
