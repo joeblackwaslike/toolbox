@@ -39,8 +39,12 @@ beforeAll(async () => {
       res.writeHead(302, { Location: `${base}/redirect-loop` }).end();
     } else if (req.url === '/moved/index.json') {
       res.writeHead(302, { Location: `${base}/moved/dir/index.json` }).end();
+    } else if (req.url === '/moved/dir/index.json') {
+      res.end(JSON.stringify({ tools: [] }));
     } else if (req.url === '/moved/dir/demo.tar.gz') {
       res.end(BODY);
+    } else if (req.url === '/moved-missing/index.json') {
+      res.writeHead(302, { Location: `${base}/missing.json` }).end();
     } else if (req.url === '/truncated') {
       res.writeHead(200, { 'Content-Length': '1000000' });
       res.write(BODY);
@@ -154,5 +158,12 @@ describe('fetchArtifact', () => {
   it('resolves a relative artifact against the index URL after a redirect to another directory', async () => {
     const bytes = await fetchArtifact(entry('demo.tar.gz'), `${base}/moved/index.json`);
     expect(bytes.equals(BODY)).toBe(true);
+  });
+
+  it('rejects a relative artifact when the final index response is a non-2xx status', async () => {
+    const error = await rejection(
+      fetchArtifact(entry('demo.tar.gz'), `${base}/moved-missing/index.json`),
+    );
+    expect(error.code).toBe(ExitCode.unavailable);
   });
 });

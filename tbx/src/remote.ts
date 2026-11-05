@@ -43,6 +43,7 @@ async function fetchSecure(href: string): Promise<{ response: Response; url: str
     if (response.status < 300 || response.status >= 400 || location === null) {
       return { response, url };
     }
+    await response.body?.cancel();
     if (hop >= MAX_REDIRECTS) {
       throw new ToolError(`${href}: too many redirects`, ExitCode.unavailable);
     }
@@ -68,6 +69,9 @@ async function download(href: string): Promise<Buffer> {
 async function resolveFinalUrl(href: string): Promise<string> {
   const { response, url } = await fetchSecure(href);
   await response.body?.cancel();
+  if (!response.ok) {
+    throw new ToolError(`cannot fetch ${href}: HTTP ${response.status}`, ExitCode.unavailable);
+  }
   return url;
 }
 
