@@ -120,6 +120,11 @@ describe('fetchArtifact', () => {
     expect(bytes.equals(BODY)).toBe(true);
   });
 
+  it('downloads an absolute artifact URL without re-fetching an unavailable index', async () => {
+    const bytes = await fetchArtifact(entry(`${base}/demo.tar.gz`), `${base}/missing.json`);
+    expect(bytes.equals(BODY)).toBe(true);
+  });
+
   it('rejects a wrong sha256 with ExitCode.config naming the tool', async () => {
     const error = await rejection(
       fetchArtifact(entry(`${base}/demo.tar.gz`, 'a'.repeat(64)), `${base}/index.json`),

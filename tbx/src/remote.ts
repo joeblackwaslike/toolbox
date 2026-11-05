@@ -107,9 +107,14 @@ function localArtifact(indexFile: string, entry: IndexEntry): string {
  * @throws {ToolError} exit 78 on a checksum mismatch or an unsafe artifact location, 69 when the
  * fetch fails.
  */
+async function remoteArtifactUrl(entry: IndexEntry, indexSource: string): Promise<string> {
+  if (isUrl(entry.artifact)) return entry.artifact;
+  return new URL(entry.artifact, await resolveFinalUrl(indexSource)).href;
+}
+
 export async function fetchArtifact(entry: IndexEntry, indexSource: string): Promise<Buffer> {
   const bytes = isRemote(indexSource)
-    ? await download(new URL(entry.artifact, await resolveFinalUrl(indexSource)).href)
+    ? await download(await remoteArtifactUrl(entry, indexSource))
     : await readFile(localArtifact(localPath(indexSource), entry));
   const actual = sha256(bytes);
   if (actual !== entry.sha256) {
