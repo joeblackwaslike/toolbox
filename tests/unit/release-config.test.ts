@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'smol-toml';
 import { describe, expect, it } from 'vitest';
+import { SEMVER_PATTERN } from '../../shared/ts/src/manifest.ts';
 import { runTbx } from '../../tbx/src/index.ts';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -42,19 +43,26 @@ describe(`release-please ${RELEASE_PLEASE_VERSION} config`, () => {
     expect(config['bootstrap-sha']).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  // A manifest version other than 0.0.0 counts as already released and gets bumped, so every
-  // package starts at 0.0.0 and initial-version sets its first release.
+  // A manifest version of 0.0.0 means the package has never released, so tool.toml/version.txt
+  // must still match initial-version; a real release-please run bumps the manifest to the
+  // released version and leaves initial-version (the original bootstrap value) unchanged, so
+  // only check version/manifest agreement once a package has actually released.
   it('configures tbx as tbx-cli whose first release is version.txt', async () => {
     const config = await json<Config>('release-please-config.json');
     const manifest = await json<Record<string, string>>('.release-please-manifest.json');
     const version = (await readFile(`${ROOT}tbx/version.txt`, 'utf8')).trim();
-    expect(config.packages.tbx).toMatchObject({
+    const tbxPkg = config.packages.tbx;
+    expect(tbxPkg).toMatchObject({
       component: 'tbx-cli',
       'release-type': 'simple',
-      'initial-version': '0.1.0',
     });
-    expect(version).toBe('0.1.0');
-    expect(manifest.tbx).toBe('0.0.0');
+    expect(tbxPkg?.['initial-version']).toMatch(SEMVER_PATTERN);
+    expect(version).toMatch(SEMVER_PATTERN);
+    if (manifest.tbx === '0.0.0') {
+      expect(version).toBe(tbxPkg?.['initial-version']);
+    } else {
+      expect(manifest.tbx).toBe(version);
+    }
   });
 
   it('configures every tool to release its tool.toml version first', async () => {
@@ -63,13 +71,19 @@ describe(`release-please ${RELEASE_PLEASE_VERSION} config`, () => {
     const versions = await toolVersions();
     expect(Object.keys(versions).length).toBeGreaterThan(0);
     for (const [name, version] of Object.entries(versions)) {
-      expect(config.packages[`tools/${name}`]).toMatchObject({
+      const pkg = config.packages[`tools/${name}`];
+      expect(pkg).toMatchObject({
         component: name,
         'release-type': 'simple',
-        'initial-version': version,
         'extra-files': [{ type: 'toml', path: 'tool.toml', jsonpath: '$.version' }],
       });
-      expect(manifest[`tools/${name}`]).toBe('0.0.0');
+      expect(pkg?.['initial-version']).toMatch(SEMVER_PATTERN);
+      const manifestVersion = manifest[`tools/${name}`];
+      if (manifestVersion === '0.0.0') {
+        expect(pkg?.['initial-version']).toBe(version);
+      } else {
+        expect(manifestVersion).toBe(version);
+      }
     }
   });
 

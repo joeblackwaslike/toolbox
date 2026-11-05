@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ToolError } from '../../shared/ts/src/errors.ts';
 import { parseIndex } from '../../tbx/src/commands/build.ts';
 
 const SCRIPT = fileURLToPath(new URL('../../scripts/publish-index.sh', import.meta.url));
@@ -58,5 +59,14 @@ describe('scripts/publish-index.sh', () => {
         'https://github.com/o/r/releases/download/transcribe-v0.2.0/transcribe-0.2.0.tar.gz',
       sha256: SHA_NEW,
     });
+  });
+});
+
+describe('parseIndex', () => {
+  it.each(['v1.2.3', 'latest'])('rejects a non-SemVer version %s', (version) => {
+    const text = JSON.stringify({
+      tools: [{ name: 'hello', version, artifact: 'hello.tar.gz', sha256: 'a'.repeat(64) }],
+    });
+    expect(() => parseIndex(text, 'release-index')).toThrow(ToolError);
   });
 });

@@ -1,6 +1,7 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
@@ -11,7 +12,7 @@ import { install } from '../../tbx/src/commands/install.ts';
 import { update } from '../../tbx/src/commands/update.ts';
 import type { TbxContext } from '../../tbx/src/context.ts';
 import { readState, recordOf, tbxPaths } from '../../tbx/src/state.ts';
-import { members, publish, sandbox } from '../helpers/release.ts';
+import { type Sandbox, members, publish, sandbox } from '../helpers/release.ts';
 
 function context(home: string): TbxContext {
   return {
@@ -159,6 +160,18 @@ describe('tbx update', () => {
     expect(outcomes.every((to) => to === '2.0.0' || to === null)).toBe(true);
     expect(outcomes).toContain('2.0.0');
     expect(await installedVersion(ctx)).toBe('2.0.0');
+  });
+
+  it('ends at the newer version when a stale updater races in with an older index', async () => {
+    const { box, ctx } = await setup('1.0.0');
+    const second = context(box.home);
+    const staleBox: Sandbox = { home: box.home, releases: await mkdtemp(join(tmpdir(), 'tbx-rel-')) };
+    const newer = await publish(box, '3.0.0');
+    const stale = await publish(staleBox, '2.0.0');
+    // Whichever updater locks first installs its own (correctly newer-than-installed) version;
+    // the under-lock recheck in `installLocked` is what stops the race from ending on 2.0.0.
+    await Promise.all([update(ctx, { index: newer }), update(second, { index: stale })]);
+    expect(await installedVersion(ctx)).toBe('3.0.0');
   });
 
   it('considers every installed tool when no name is given', async () => {

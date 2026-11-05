@@ -9,7 +9,8 @@ const OPTION_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SEMVER_NUMBER = String.raw`(?:0|[1-9]\d*)`;
 const SEMVER_PRERELEASE_ID = String.raw`(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)`;
 const SEMVER_BUILD_ID = '[0-9a-zA-Z-]+';
-const SEMVER_PATTERN = new RegExp(
+/** Matches a SemVer 2.0.0 version: `major.minor.patch` with optional prerelease and build metadata. */
+export const SEMVER_PATTERN = new RegExp(
   `^${SEMVER_NUMBER}\\.${SEMVER_NUMBER}\\.${SEMVER_NUMBER}` +
     `(?:-${SEMVER_PRERELEASE_ID}(?:\\.${SEMVER_PRERELEASE_ID})*)?` +
     `(?:\\+${SEMVER_BUILD_ID}(?:\\.${SEMVER_BUILD_ID})*)?$`,

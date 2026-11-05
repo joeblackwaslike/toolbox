@@ -24,7 +24,7 @@ function assertSecure(url: URL): void {
 }
 
 /** Follows redirects manually, validating each hop's URL before requesting it. */
-async function fetchSecure(href: string): Promise<Response> {
+async function fetchSecure(href: string): Promise<{ response: Response; url: string }> {
   let url = href;
   for (let hop = 0; ; hop += 1) {
     assertSecure(new URL(url));
@@ -40,7 +40,9 @@ async function fetchSecure(href: string): Promise<Response> {
       });
     }
     const location = response.headers.get('location');
-    if (response.status < 300 || response.status >= 400 || location === null) return response;
+    if (response.status < 300 || response.status >= 400 || location === null) {
+      return { response, url };
+    }
     if (hop >= MAX_REDIRECTS) {
       throw new ToolError(`${href}: too many redirects`, ExitCode.unavailable);
     }
@@ -49,17 +51,24 @@ async function fetchSecure(href: string): Promise<Response> {
 }
 
 async function download(href: string): Promise<Buffer> {
-  const response = await fetchSecure(href);
+  const { response, url } = await fetchSecure(href);
   if (!response.ok) {
     throw new ToolError(`cannot fetch ${href}: HTTP ${response.status}`, ExitCode.unavailable);
   }
   try {
     return Buffer.from(await response.arrayBuffer());
   } catch (error) {
-    throw new ToolError(`cannot fetch ${href}: ${messageOf(error)}`, ExitCode.unavailable, {
+    throw new ToolError(`cannot fetch ${url}: ${messageOf(error)}`, ExitCode.unavailable, {
       cause: error,
     });
   }
+}
+
+/** Resolves the final URL of `href` after following any redirects, without reading the body. */
+async function resolveFinalUrl(href: string): Promise<string> {
+  const { response, url } = await fetchSecure(href);
+  await response.body?.cancel();
+  return url;
 }
 
 function localPath(source: string): string {
@@ -100,7 +109,7 @@ function localArtifact(indexFile: string, entry: IndexEntry): string {
  */
 export async function fetchArtifact(entry: IndexEntry, indexSource: string): Promise<Buffer> {
   const bytes = isRemote(indexSource)
-    ? await download(new URL(entry.artifact, indexSource).href)
+    ? await download(new URL(entry.artifact, await resolveFinalUrl(indexSource)).href)
     : await readFile(localArtifact(localPath(indexSource), entry));
   const actual = sha256(bytes);
   if (actual !== entry.sha256) {

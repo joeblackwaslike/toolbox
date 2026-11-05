@@ -81,13 +81,18 @@ def _install(asset: str, expected: str, target: Path) -> None:
     body = _fetch(url)
     if _sha256(body) != expected:
         _fail(f"checksum mismatch for {asset}; refusing to run the download")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{asset}.", suffix=".tmp")
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{asset}.", suffix=".tmp")
+    except OSError as err:
+        _fail(f"cannot install cached binary {target}: {err}")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(body)
         Path(tmp).chmod(0o755)
         Path(tmp).replace(target)
+    except OSError as err:
+        _fail(f"cannot install cached binary {target}: {err}")
     finally:
         with contextlib.suppress(FileNotFoundError):
             Path(tmp).unlink()

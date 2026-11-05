@@ -185,6 +185,19 @@ def test_unreadable_cache_fails_with_context_instead_of_downloading(env, rendere
     assert Handler.hits == 0
 
 
+def test_unwritable_cache_parent_fails_install_with_context(env):
+    cache_root = Path(env["XDG_CACHE_HOME"]) / "tbx"
+    cache_root.mkdir(parents=True)
+    cache_root.chmod(0o500)
+    try:
+        r = run(env, "x")
+        assert r.returncode != 0
+        assert "Traceback" not in r.stderr
+        assert "cannot install cached binary" in r.stderr
+    finally:
+        cache_root.chmod(0o700)
+
+
 def test_exec_of_non_executable_cached_binary_fails_with_context(env):
     assert run(env, "a").returncode == 0
     (cached_file,) = cached(env)

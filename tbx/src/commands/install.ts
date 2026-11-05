@@ -112,8 +112,9 @@ async function hasInstalledMode(file: string): Promise<boolean> {
   try {
     const info = await stat(file);
     return info.isFile() && (info.mode & EXECUTABLE_MODE) === EXECUTABLE_MODE;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return false;
+    throw new ToolError(`cannot inspect ${file}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

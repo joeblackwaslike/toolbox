@@ -7,7 +7,12 @@ import { generateShellParser } from '../../../shared/sh/gen-parser.ts';
 import { ExitCode, ToolError, isErrnoException, messageOf } from '../../../shared/ts/src/errors.ts';
 import { compareText } from '../../../shared/ts/src/gen/files.ts';
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
-import { NAME_PATTERN, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
+import {
+  NAME_PATTERN,
+  SEMVER_PATTERN,
+  type ToolManifest,
+  loadManifest,
+} from '../../../shared/ts/src/manifest.ts';
 import { EXECUTABLE_MODE } from '../../../shared/ts/src/paths.ts';
 import { CommandError, runBounded } from '../../../shared/ts/src/run.ts';
 import { packTar, sha256 } from '../archive.ts';
@@ -52,7 +57,7 @@ const indexSchema = z.strictObject({
   tools: z.array(
     z.strictObject({
       name: z.string().regex(NAME_PATTERN),
-      version: z.string().min(1),
+      version: z.string().regex(SEMVER_PATTERN),
       artifact: z.string().min(1),
       sha256: z.string().regex(/^[0-9a-f]{64}$/),
     }),
