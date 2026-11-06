@@ -9,6 +9,8 @@ import { type IndexEntry, parseIndex, readIndex } from './commands/build.ts';
 const FETCH_TIMEOUT_MS = 60_000;
 const LOOPBACK = '127.0.0.1';
 const MAX_REDIRECTS = 5;
+const HTTP_REDIRECT_MIN = 300;
+const HTTP_REDIRECT_MAX = 400;
 
 function isUrl(source: string): boolean {
   return /^(https?|file):/i.test(source);
@@ -40,7 +42,11 @@ async function fetchSecure(href: string): Promise<{ response: Response; url: str
       });
     }
     const location = response.headers.get('location');
-    if (response.status < 300 || response.status >= 400 || location === null) {
+    if (
+      response.status < HTTP_REDIRECT_MIN ||
+      response.status >= HTTP_REDIRECT_MAX ||
+      location === null
+    ) {
       return { response, url };
     }
     await response.body?.cancel();

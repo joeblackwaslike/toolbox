@@ -166,7 +166,10 @@ describe('tbx update', () => {
   it('skips a stale updater that reaches the lock after a newer one already committed', async () => {
     const { box, ctx } = await setup('1.0.0');
     const second = context(box.home);
-    const staleBox: Sandbox = { home: box.home, releases: await mkdtemp(join(tmpdir(), 'tbx-rel-')) };
+    const staleBox: Sandbox = {
+      home: box.home,
+      releases: await mkdtemp(join(tmpdir(), 'tbx-rel-')),
+    };
     const newer = await publish(box, '3.0.0');
     const stale = await publish(staleBox, '2.0.0');
     // The stale updater selects its (then newer-than-installed) entry while 1.0.0 is still

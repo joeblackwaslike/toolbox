@@ -32,11 +32,11 @@ function parse(version: string): { core: string[]; pre: string[] } {
 
 /** Compares two numeric identifier strings by magnitude, without a lossy `Number` conversion. */
 function compareNumeric(a: string, b: string): number {
-  return BigInt(a === '' ? '0' : a) < BigInt(b === '' ? '0' : b)
-    ? -1
-    : BigInt(a === '' ? '0' : a) > BigInt(b === '' ? '0' : b)
-      ? 1
-      : 0;
+  const aValue = BigInt(a === '' ? '0' : a);
+  const bValue = BigInt(b === '' ? '0' : b);
+  if (aValue < bValue) return -1;
+  if (aValue > bValue) return 1;
+  return 0;
 }
 
 function compareCore(a: string[], b: string[]): number {
@@ -53,7 +53,9 @@ function compareIdentifier(a: string, b: string): number {
   const bNumeric = NUMERIC_IDENTIFIER.test(b);
   if (aNumeric && bNumeric) return compareNumeric(a, b);
   if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 /** SemVer precedence for two prerelease identifier lists; no prerelease sorts above any prerelease. */

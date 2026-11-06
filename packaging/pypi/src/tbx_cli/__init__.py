@@ -62,9 +62,11 @@ class _RedirectHandler(urllib.request.HTTPRedirectHandler):
 
     max_redirections = 5
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not is_allowed_url(newurl):
-            raise urllib.error.HTTPError(newurl, code, f"refusing a redirect to {newurl}", headers, fp)
+            raise urllib.error.HTTPError(
+                newurl, code, f"refusing a redirect to {newurl}", headers, fp
+            )
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 

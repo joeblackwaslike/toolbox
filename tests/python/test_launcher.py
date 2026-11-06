@@ -135,6 +135,13 @@ def test_non_loopback_http_is_refused(env):
     assert "https" in r.stderr.lower()
 
 
+def test_malformed_download_base_fails_cleanly(env):
+    r = run({**env, "TBX_DOWNLOAD_BASE": "https://[broken"}, "x")
+    assert r.returncode != 0
+    assert "Traceback" not in r.stderr
+    assert "https" in r.stderr.lower()
+
+
 def test_tampered_cached_binary_is_replaced_not_run(env):
     assert run(env, "a").returncode == 0
     (cached_file,) = cached(env)

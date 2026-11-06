@@ -139,7 +139,8 @@ async function main() {
   try {
     cachedOk = sha256(fs.readFileSync(target)) === expected;
   } catch (err) {
-    if (err.code !== 'ENOENT') throw new Error(`cannot read cached binary ${target}: ${err.message}`);
+    if (err.code !== 'ENOENT')
+      throw new Error(`cannot read cached binary ${target}: ${err.message}`);
     cachedOk = false;
   }
 

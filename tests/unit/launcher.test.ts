@@ -85,6 +85,7 @@ beforeAll(async () => {
       return;
     }
     if (req.url === '/loop') {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: `${base}/loop` }).end();
       return;
     }
@@ -93,6 +94,7 @@ beforeAll(async () => {
       return;
     }
     if (redirectTarget !== null) {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: redirectTarget }).end();
       return;
     }

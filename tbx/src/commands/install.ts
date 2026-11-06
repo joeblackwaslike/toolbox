@@ -114,7 +114,9 @@ async function hasInstalledMode(file: string): Promise<boolean> {
     return info.isFile() && (info.mode & EXECUTABLE_MODE) === EXECUTABLE_MODE;
   } catch (error) {
     if (isErrnoException(error) && error.code === 'ENOENT') return false;
-    throw new ToolError(`cannot inspect ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ToolError(
+      `cannot inspect ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -137,7 +139,7 @@ async function placeVersion(
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 async function swapLink(link: string, target: string): Promise<void> {

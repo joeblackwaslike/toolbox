@@ -29,21 +29,26 @@ beforeAll(async () => {
     } else if (req.url === '/demo.tar.gz') {
       res.end(BODY);
     } else if (req.url === '/redirect-to-insecure') {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: `http://localhost:${port}/second` }).end();
     } else if (req.url === '/second') {
       secondHits += 1;
       res.end(BODY);
     } else if (req.url === '/redirect-once') {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: `${base}/demo.tar.gz` }).end();
     } else if (req.url === '/redirect-loop') {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: `${base}/redirect-loop` }).end();
     } else if (req.url === '/moved/index.json') {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: `${base}/moved/dir/index.json` }).end();
     } else if (req.url === '/moved/dir/index.json') {
       res.end(JSON.stringify({ tools: [] }));
     } else if (req.url === '/moved/dir/demo.tar.gz') {
       res.end(BODY);
     } else if (req.url === '/moved-missing/index.json') {
+      // biome-ignore lint/style/useNamingConvention: HTTP header name
       res.writeHead(302, { Location: `${base}/missing.json` }).end();
     } else if (req.url === '/truncated') {
       res.writeHead(200, { 'Content-Length': '1000000' });
