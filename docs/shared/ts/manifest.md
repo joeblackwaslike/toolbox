@@ -80,6 +80,14 @@ const RESERVED_COMMANDS: ReadonlySet<string>
 The tbx subcommands. A tool name or alias cannot be one of them, because `tbx <name>`
 dispatches to an installed tool only when `<name>` is not a subcommand.
 
+## SEMVER_PATTERN
+
+```ts
+const SEMVER_PATTERN
+```
+
+Matches a SemVer 2.0.0 version: `major.minor.patch` with optional prerelease and build metadata.
+
 ## ToolManifest
 
 ```ts
