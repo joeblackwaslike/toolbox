@@ -68,7 +68,7 @@ function comparePre(a: string[], b: string[]): number {
 }
 
 /** True when `candidate` is strictly newer than `current`; a pre-release sorts below its release. */
-function isNewer(candidate: string, current: string): boolean {
+export function isNewer(candidate: string, current: string): boolean {
   const a = parse(candidate);
   const b = parse(current);
   const core = compareCore(a.core, b.core);

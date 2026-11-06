@@ -8,9 +8,10 @@ import { ExitCode, ToolError } from '../../shared/ts/src/errors.ts';
 import { createOutput } from '../../shared/ts/src/output.ts';
 import { packTar, sha256 } from '../../tbx/src/archive.ts';
 import { writeIndex } from '../../tbx/src/commands/build.ts';
-import { install } from '../../tbx/src/commands/install.ts';
-import { update } from '../../tbx/src/commands/update.ts';
+import { install, installTool } from '../../tbx/src/commands/install.ts';
+import { isNewer, update } from '../../tbx/src/commands/update.ts';
 import type { TbxContext } from '../../tbx/src/context.ts';
+import { fetchIndex } from '../../tbx/src/remote.ts';
 import { readState, recordOf, tbxPaths } from '../../tbx/src/state.ts';
 import { type Sandbox, members, publish, sandbox } from '../helpers/release.ts';
 
@@ -162,15 +163,30 @@ describe('tbx update', () => {
     expect(await installedVersion(ctx)).toBe('2.0.0');
   });
 
-  it('ends at the newer version when a stale updater races in with an older index', async () => {
+  it('skips a stale updater that reaches the lock after a newer one already committed', async () => {
     const { box, ctx } = await setup('1.0.0');
     const second = context(box.home);
     const staleBox: Sandbox = { home: box.home, releases: await mkdtemp(join(tmpdir(), 'tbx-rel-')) };
     const newer = await publish(box, '3.0.0');
     const stale = await publish(staleBox, '2.0.0');
-    // Whichever updater locks first installs its own (correctly newer-than-installed) version;
-    // the under-lock recheck in `installLocked` is what stops the race from ending on 2.0.0.
-    await Promise.all([update(ctx, { index: newer }), update(second, { index: stale })]);
+    // The stale updater selects its (then newer-than-installed) entry while 1.0.0 is still
+    // installed, before the other updater has run at all.
+    const staleEntry = (await fetchIndex(stale)).find((entry) => entry.name === 'hello');
+    if (staleEntry === undefined) throw new Error('missing index entry');
+    // The other updater completes first and commits 3.0.0.
+    await update(ctx, { index: newer });
+    expect(await installedVersion(ctx)).toBe('3.0.0');
+    // The stale updater now reaches the lock with its already-selected, outdated entry; the
+    // under-lock recheck in `installLocked` is what stops it from downgrading to 2.0.0.
+    const installed = await installTool({
+      name: 'hello',
+      index: stale,
+      entry: staleEntry,
+      skipUnless: isNewer,
+      home: second.home,
+      env: second.env,
+    });
+    expect(installed).toBe(false);
     expect(await installedVersion(ctx)).toBe('3.0.0');
   });
 

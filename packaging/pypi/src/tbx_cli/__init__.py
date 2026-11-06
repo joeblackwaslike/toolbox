@@ -38,8 +38,11 @@ def asset_name(os_name: str, machine: str, libc: str) -> str:
 
 def is_allowed_url(url: str) -> bool:
     """Allow https anywhere, and http only for loopback hosts."""
-    parsed = urllib.parse.urlparse(url)
-    loopback = parsed.hostname in ("127.0.0.1", "localhost")
+    try:
+        parsed = urllib.parse.urlparse(url)
+        loopback = parsed.hostname in ("127.0.0.1", "localhost")
+    except ValueError:
+        return False
     return parsed.scheme == "https" or (parsed.scheme == "http" and loopback)
 
 
@@ -72,7 +75,7 @@ def _fetch(url: str) -> bytes:
             if not is_allowed_url(res.geturl()):
                 _fail(f"download failed: {url}: refusing a redirect to {res.geturl()}")
             return res.read()
-    except (OSError, http.client.HTTPException) as err:
+    except (OSError, http.client.HTTPException, ValueError) as err:
         _fail(f"download failed: {url}: {err}")
 
 

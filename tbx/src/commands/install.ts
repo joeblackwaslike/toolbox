@@ -136,15 +136,20 @@ async function placeVersion(
   await moveDir(stage, versionDir);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function swapLink(link: string, target: string): Promise<void> {
   const dir = path.dirname(link);
   await mkdir(dir, { recursive: true, mode: EXECUTABLE_MODE });
-  const prefix = `.${path.basename(link)}.`;
+  const name = path.basename(link);
+  const stalePattern = new RegExp(`^\\.${escapeRegExp(name)}\\.\\d+\\.tmp$`);
   const entries = await readdir(dir);
-  for (const stale of entries.filter((file) => file.startsWith(prefix) && file.endsWith('.tmp'))) {
+  for (const stale of entries.filter((file) => stalePattern.test(file))) {
     await rm(path.join(dir, stale), { force: true });
   }
-  const temporary = path.join(dir, `${prefix}${process.pid}.tmp`);
+  const temporary = path.join(dir, `.${name}.${process.pid}.tmp`);
   await symlink(target, temporary);
   await rename(temporary, link);
 }
