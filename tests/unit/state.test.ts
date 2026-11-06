@@ -319,12 +319,21 @@ describe('a lock left behind by this process', () => {
     const dir = await mkdtemp(join(tmpdir(), 'tbx-lock-'));
     const file = join(dir, 'install.lock');
     const order: string[] = [];
-    const first = withLock(file, async () => {
-      order.push('first start');
-      await delay(200);
-      order.push('first end');
+    let acquired: () => void = () => undefined;
+    const lockAcquired = new Promise<void>((resolve) => {
+      acquired = resolve;
     });
-    await delay(20);
+    const first = withLock(
+      file,
+      async () => {
+        order.push('first start');
+        await delay(200);
+        order.push('first end');
+      },
+      3000,
+      { afterAcquire: async () => acquired() },
+    );
+    await lockAcquired;
     const second = withLock(file, () => {
       order.push('second');
       return Promise.resolve();

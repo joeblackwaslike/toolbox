@@ -3,6 +3,8 @@ import { dirname } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ToolError } from '../../shared/ts/src/errors.ts';
 import { createOutput } from '../../shared/ts/src/output.ts';
+import { packTar, sha256 } from '../../tbx/src/archive.ts';
+import { writeIndex } from '../../tbx/src/commands/build.ts';
 import { install } from '../../tbx/src/commands/install.ts';
 import type { TbxContext } from '../../tbx/src/context.ts';
 import { layout, members, publish, sandbox } from '../helpers/release.ts';
@@ -72,6 +74,22 @@ describe('tbx install all', () => {
     await install(ctx, 'all', { index });
     expect(JSON.parse(stdout.join(''))).toEqual({ installed: [], skipped: ['hello'] });
     expect(stderr.join('')).toMatch(/skipped hello: hello does not support/);
+  });
+
+  it('installs a tool once at its newest version when the index lists release history', async () => {
+    const box = await sandbox();
+    const newBytes = packTar(members('2.0.0'));
+    const newArtifact = 'hello-2.0.0.tar.gz';
+    await writeFile(`${box.releases}/${newArtifact}`, newBytes);
+    const index = await writeIndex(box.releases, [
+      { name: 'hello', version: '2.0.0', artifact: newArtifact, sha256: sha256(newBytes) },
+      { name: 'hello', version: '1.0.0', artifact: 'hello-1.0.0.tar.gz', sha256: 'f'.repeat(64) },
+    ]);
+    const { ctx, stdout } = context(box.home);
+    await install(ctx, 'all', { index });
+    expect(JSON.parse(stdout.join(''))).toEqual({
+      installed: [{ name: 'hello', version: '2.0.0' }],
+    });
   });
 
   it('fails when a unit validator is missing under CI=1', async () => {

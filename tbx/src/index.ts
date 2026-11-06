@@ -9,6 +9,7 @@ import { ExitCode } from '../../shared/ts/src/errors.ts';
 import { RESERVED_COMMANDS } from '../../shared/ts/src/manifest.ts';
 import { type OutputStreams, PROCESS_STREAMS, createOutput } from '../../shared/ts/src/output.ts';
 import { binariesOnPath, tbxBinDir } from '../../shared/ts/src/paths.ts';
+import version from '../version.txt' with { type: 'text' };
 import { build } from './commands/build.ts';
 import { gen } from './commands/gen.ts';
 import { help } from './commands/help.ts';
@@ -16,6 +17,8 @@ import { install, installedToolFor, uninstall } from './commands/install.ts';
 import { list } from './commands/list.ts';
 import { newTool } from './commands/new.ts';
 import { newShared, searchShared } from './commands/shared.ts';
+import { stamp } from './commands/stamp.ts';
+import { update } from './commands/update.ts';
 import { verify } from './commands/verify.ts';
 import { type TbxContext, isCi } from './context.ts';
 import { tbxPaths } from './state.ts';
@@ -92,9 +95,35 @@ function addReleaseCommands(program: Command, run: Runner): void {
     .command('install')
     .description('Install tools from a release index into the managed bin directory')
     .argument('<name>', 'Tool name, or all')
-    .option('--index <path>', 'Release index.json (default: dist/release/index.json)')
+    .option(
+      '--index <path|url>',
+      'Release index.json path or URL (default: $TBX_INDEX, else the GitHub release index)',
+    )
     .action((name: string, options: { index?: string }, command: Command) =>
       run(command, (ctx) => install(ctx, name, options)),
+    );
+  program
+    .command('update')
+    .description('Install newer versions of installed tools from a release index')
+    .argument('[name]', 'Tool name (default: every installed tool)')
+    .option(
+      '--index <path|url>',
+      'Release index.json path or URL (default: $TBX_INDEX, else the GitHub release index)',
+    )
+    .action((name: string | undefined, options: { index?: string }, command: Command) =>
+      run(command, async (ctx) => {
+        await update(ctx, { ...(name === undefined ? {} : { name }), ...options });
+      }),
+    );
+  program
+    .command('stamp')
+    .description(
+      'Refresh the .shared-stamp files that trigger releases when bundled shared code changes',
+    )
+    .option('--write', 'Rewrite stale stamps and print the components that changed')
+    .option('--check', 'Write nothing; exit 1 when a stamp is stale')
+    .action((options: { write?: boolean; check?: boolean }, command: Command) =>
+      run(command, (ctx) => stamp(ctx, options)),
     );
   program
     .command('verify')
@@ -118,6 +147,7 @@ function buildProgram(env: TbxEnv, streams: OutputStreams): Command {
     .description('Scaffold, document and inspect the tools in this repo')
     .option('-y, --no-input', 'Disable all prompts')
     .option('--json', 'Print machine-readable JSON to stdout')
+    .version(version.trim(), '-V, --version')
     .helpCommand(false)
     .exitOverride()
     .configureOutput({
@@ -272,6 +302,6 @@ export function isEntryPoint(moduleUrl: string, argv1: string | undefined): bool
   }
 }
 
-if (isEntryPoint(import.meta.url, process.argv[1])) {
+if (import.meta.main || isEntryPoint(import.meta.url, process.argv[1])) {
   process.exitCode = await execute(process.argv.slice(2), { root: REPO_ROOT }, PROCESS_STREAMS);
 }

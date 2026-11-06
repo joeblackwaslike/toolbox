@@ -7,7 +7,12 @@ import { generateShellParser } from '../../../shared/sh/gen-parser.ts';
 import { ExitCode, ToolError, isErrnoException, messageOf } from '../../../shared/ts/src/errors.ts';
 import { compareText } from '../../../shared/ts/src/gen/files.ts';
 import { loadToolManifests } from '../../../shared/ts/src/gen/index.ts';
-import { NAME_PATTERN, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
+import {
+  NAME_PATTERN,
+  SEMVER_PATTERN,
+  type ToolManifest,
+  loadManifest,
+} from '../../../shared/ts/src/manifest.ts';
 import { EXECUTABLE_MODE } from '../../../shared/ts/src/paths.ts';
 import { CommandError, runBounded } from '../../../shared/ts/src/run.ts';
 import { packTar, sha256 } from '../archive.ts';
@@ -20,17 +25,19 @@ const FIXED_MTIME = new Date('2000-01-01T00:00:00Z');
 const MS_PER_SECOND = 1000;
 const CHECKOUT_LOADER_START = '\nif ! declare -F _tbx_parse >/dev/null; then\n';
 const CHECKOUT_LOADER_END = '\nfi\n';
+const PY_SHARED_DIR = 'shared/py/tbx_shared';
 const SOURCE_COMMAND = /^(?:source|\.)\s/;
 
 /** Longest one build step (an esbuild bundle or a `uv` command) may run before the build fails. */
 export const BUILD_STEP_TIMEOUT_MS = 300_000;
 
-/** Directory `tbx build` writes to and `tbx install` reads `index.json` from by default. */
+/** Directory `tbx build` writes its artifacts and `index.json` to by default. */
 export const DEFAULT_RELEASE_DIR = 'dist/release';
 
 /**
- * One tool in a release index. `artifact` is the `.tar.gz` path relative to the directory that
- * holds `index.json`; `sha256` is its hex checksum.
+ * One tool in a release index. `artifact` is the `.tar.gz` path relative to the directory (or URL
+ * directory) that holds `index.json`, or an absolute `https:` URL when the index is remote;
+ * `sha256` is its hex checksum.
  */
 export interface IndexEntry {
   name: string;
@@ -50,7 +57,7 @@ const indexSchema = z.strictObject({
   tools: z.array(
     z.strictObject({
       name: z.string().regex(NAME_PATTERN),
-      version: z.string().min(1),
+      version: z.string().regex(SEMVER_PATTERN),
       artifact: z.string().min(1),
       sha256: z.string().regex(/^[0-9a-f]{64}$/),
     }),
@@ -73,11 +80,20 @@ export async function readIndex(file: string): Promise<IndexEntry[]> {
     }
     throw error;
   }
+  return parseIndex(text, file);
+}
+
+/**
+ * Parses the text of a release index fetched from `source`.
+ *
+ * @throws {ToolError} exit 78 when it is not a valid index.
+ */
+export function parseIndex(text: string, source: string): IndexEntry[] {
   try {
     return indexSchema.parse(JSON.parse(text)).tools;
   } catch (error) {
     throw new ToolError(
-      `${file} is not a valid release index: ${messageOf(error)}`,
+      `${source} is not a valid release index: ${messageOf(error)}`,
       ExitCode.config,
     );
   }
@@ -108,23 +124,28 @@ async function withinLimit<T>(work: Promise<T>, what: string): Promise<T> {
   }
 }
 
-async function bundleTs(root: string, name: string): Promise<Buffer> {
+async function esbuildTs(
+  root: string,
+  entry: string,
+  what: string,
+): Promise<{ code: Buffer; inputs: string[] }> {
   const bundling = esbuild({
-    entryPoints: [path.join(root, 'tools', name, 'src/index.ts')],
+    entryPoints: [path.join(root, entry)],
     absWorkingDir: root,
     bundle: true,
     platform: 'node',
     format: 'esm',
     target: 'node22',
     write: false,
+    metafile: true,
     legalComments: 'none',
     logLevel: 'silent',
     banner: { js: '#!/usr/bin/env bun' },
     plugins: [
       {
-        name: 'tool-toml-text',
+        name: 'text-files',
         setup(plugin) {
-          plugin.onLoad({ filter: /\.toml$/ }, async (args) => ({
+          plugin.onLoad({ filter: /\.(toml|txt)$/ }, async (args) => ({
             contents: await readFile(args.path, 'utf8'),
             loader: 'text',
           }));
@@ -132,10 +153,15 @@ async function bundleTs(root: string, name: string): Promise<Buffer> {
       },
     ],
   });
-  const result = await withinLimit(bundling, `esbuild bundle of ${name}`);
+  const result = await withinLimit(bundling, `esbuild bundle of ${what}`);
   const [output] = result.outputFiles;
-  if (output === undefined) throw new Error(`esbuild produced no output for ${name}`);
-  return Buffer.from(output.contents);
+  if (output === undefined) throw new Error(`esbuild produced no output for ${what}`);
+  return { code: Buffer.from(output.contents), inputs: Object.keys(result.metafile.inputs) };
+}
+
+async function bundleTs(root: string, name: string): Promise<Buffer> {
+  const { code } = await esbuildTs(root, `tools/${name}/src/index.ts`, name);
+  return code;
 }
 
 function withoutShebang(text: string): string {
@@ -193,6 +219,10 @@ async function pinTimes(dir: string): Promise<void> {
   await utimes(dir, FIXED_MTIME, FIXED_MTIME);
 }
 
+function isShippedPy(source: string): boolean {
+  return !source.includes('__pycache__');
+}
+
 async function vendorPython(root: string, app: string, work: string): Promise<void> {
   const requirements = path.join(work, 'requirements.txt');
   const pins = await run(
@@ -217,9 +247,9 @@ async function vendorPython(root: string, app: string, work: string): Promise<vo
     root,
   );
   await rm(path.join(app, 'bin'), { recursive: true, force: true });
-  await cp(path.join(root, 'shared/py/tbx_shared'), path.join(app, 'tbx_shared'), {
+  await cp(path.join(root, PY_SHARED_DIR), path.join(app, 'tbx_shared'), {
     recursive: true,
-    filter: (source) => !source.includes('__pycache__'),
+    filter: isShippedPy,
   });
 }
 
@@ -347,4 +377,37 @@ export async function build(
       ? { index, built }
       : [...built.map((tool) => `built ${tool.name} ${tool.version}`), `index ${index}`].join('\n'),
   );
+}
+
+async function sharedInputs(root: string, entry: string, what: string): Promise<string[]> {
+  const { inputs } = await esbuildTs(root, entry, what);
+  return inputs.filter((file) => file.startsWith('shared/'));
+}
+
+async function pyShared(root: string): Promise<string[]> {
+  const dir = path.join(root, PY_SHARED_DIR);
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+    .filter((file) => isShippedPy(file))
+    .map((file) => path.relative(root, file));
+  return ['shared/py/pyproject.toml', ...files];
+}
+
+/**
+ * Repo-relative paths of the `shared/` files the build of `m` bundles into its artifact: the
+ * modules esbuild pulls in for TypeScript, `lib.sh` plus the parser generator's modules for
+ * shell, and the vendored `tbx_shared` package and its `pyproject.toml` for Python.
+ */
+export async function bundledSharedFiles(root: string, m: ToolManifest): Promise<string[]> {
+  if (m.language === 'ts') return sharedInputs(root, `tools/${m.name}/src/index.ts`, m.name);
+  if (m.language === 'py') return pyShared(root);
+  const parser = await sharedInputs(root, 'shared/sh/gen-parser.ts', m.name);
+  return ['shared/sh/lib.sh', ...parser];
+}
+
+/** Repo-relative paths of the `shared/` files `tbx` itself bundles into its binary. */
+export function tbxSharedFiles(root: string): Promise<string[]> {
+  return sharedInputs(root, 'tbx/src/index.ts', 'tbx');
 }

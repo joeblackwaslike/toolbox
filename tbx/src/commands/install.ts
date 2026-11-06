@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink } from 'no
 import path from 'node:path';
 import { ExitCode, ToolError, isErrnoException, messageOf } from '../../../shared/ts/src/errors.ts';
 import { ManifestError, type ToolManifest, loadManifest } from '../../../shared/ts/src/manifest.ts';
-import { EXECUTABLE_MODE, isWithin } from '../../../shared/ts/src/paths.ts';
-import { sha256 } from '../archive.ts';
+import { EXECUTABLE_MODE } from '../../../shared/ts/src/paths.ts';
 import type { TbxContext } from '../context.ts';
 import { assertLinksOwned, identifiers, linksCurrent, toolLinks } from '../links.ts';
+import { fetchArtifact, fetchIndex } from '../remote.ts';
 import { ARTIFACT_MARKER, UnsupportedPlatformError, stageArtifact } from '../stage.ts';
 import {
   type Env,
@@ -18,7 +18,7 @@ import {
   writeState,
 } from '../state.ts';
 import { pathExists } from '../templates.ts';
-import { DEFAULT_RELEASE_DIR, type IndexEntry, readIndex } from './build.ts';
+import type { IndexEntry } from './build.ts';
 
 /** Points between install steps where a test can kill the process with `faultAt`. */
 export const FAULT_POINTS = [
@@ -35,7 +35,7 @@ export type FaultPoint = (typeof FAULT_POINTS)[number];
 export interface InstallOptions {
   /** Tool to install; checked against the manifest name pattern before any path is built. */
   name: string;
-  /** Path of the release `index.json`. */
+  /** Local path, `file:` URL or `https:` URL of the release `index.json`. */
   index: string;
   /** Home directory the install layout is resolved against. */
   home: string;
@@ -50,6 +50,14 @@ export interface InstallOptions {
   lockTimeoutMs?: number;
   /** Receives warnings such as a skipped unit validator; defaults to stderr. */
   warn?: (message: string) => void;
+  /** Already-selected index entry to install; skips re-fetching and re-selecting from the index. */
+  entry?: IndexEntry;
+  /**
+   * When set, re-checks under the install lock that `entry`'s version is strictly newer than the
+   * currently installed one (by this comparator) and skips the install otherwise, so a concurrent
+   * or rolled-back index can never downgrade an installation.
+   */
+  skipUnless?: (entryVersion: string, installedVersion: string) => boolean;
 }
 
 function fault(options: { faultAt?: FaultPoint }, point: FaultPoint): void {
@@ -60,20 +68,8 @@ function envOf(options: { env?: Env }): Env {
   return options.env ?? process.env;
 }
 
-function artifactPath(index: string, entry: IndexEntry): string {
-  const base = path.dirname(path.resolve(index));
-  const file = path.resolve(base, entry.artifact);
-  if (path.isAbsolute(entry.artifact) || !isWithin(base, file)) {
-    throw new ToolError(
-      `${index}: artifact for ${entry.name} must stay inside the index directory`,
-      ExitCode.config,
-    );
-  }
-  return file;
-}
-
 async function findEntry(index: string, name: string): Promise<IndexEntry> {
-  const entries = await readIndex(index);
+  const entries = await fetchIndex(index);
   const entry = entries.find((tool) => tool.name === name);
   if (entry === undefined) throw new ToolError(`${name} is not in ${index}`);
   return entry;
@@ -116,8 +112,11 @@ async function hasInstalledMode(file: string): Promise<boolean> {
   try {
     const info = await stat(file);
     return info.isFile() && (info.mode & EXECUTABLE_MODE) === EXECUTABLE_MODE;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return false;
+    throw new ToolError(
+      `cannot inspect ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -139,15 +138,20 @@ async function placeVersion(
   await moveDir(stage, versionDir);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+}
+
 async function swapLink(link: string, target: string): Promise<void> {
   const dir = path.dirname(link);
   await mkdir(dir, { recursive: true, mode: EXECUTABLE_MODE });
-  const prefix = `.${path.basename(link)}.`;
+  const name = path.basename(link);
+  const stalePattern = new RegExp(`^\\.${escapeRegExp(name)}\\.\\d+\\.tmp$`);
   const entries = await readdir(dir);
-  for (const stale of entries.filter((file) => file.startsWith(prefix) && file.endsWith('.tmp'))) {
+  for (const stale of entries.filter((file) => stalePattern.test(file))) {
     await rm(path.join(dir, stale), { force: true });
   }
-  const temporary = path.join(dir, `${prefix}${process.pid}.tmp`);
+  const temporary = path.join(dir, `.${name}.${process.pid}.tmp`);
   await symlink(target, temporary);
   await rename(temporary, link);
 }
@@ -162,17 +166,6 @@ async function prune(
     if (keep.has(version)) continue;
     await removeAside(path.join(toolDir, version), staging, options);
   }
-}
-
-async function verifiedBytes(artifact: string, entry: IndexEntry): Promise<Buffer> {
-  const bytes = await readFile(artifact);
-  const actual = sha256(bytes);
-  if (actual !== entry.sha256) {
-    throw new ToolError(
-      `checksum mismatch for ${artifact}: index says ${entry.sha256}, file is ${actual}`,
-    );
-  }
-  return bytes;
 }
 
 async function activate(
@@ -202,11 +195,17 @@ async function activate(
 
 async function installLocked(
   entry: IndexEntry,
-  artifact: string,
   paths: TbxPaths,
   options: InstallOptions,
-): Promise<void> {
-  const bytes = await verifiedBytes(artifact, entry);
+): Promise<boolean> {
+  if (options.skipUnless) {
+    const state = await readState(paths);
+    const installed = recordOf(state, entry.name);
+    if (installed !== undefined && !options.skipUnless(entry.version, installed.version)) {
+      return false;
+    }
+  }
+  const bytes = await fetchArtifact(entry, options.index);
   await rm(paths.staging, { recursive: true, force: true });
   await mkdir(paths.staging, { recursive: true, mode: EXECUTABLE_MODE });
   const stage = await mkdtemp(path.join(paths.staging, `${entry.name}-`));
@@ -221,6 +220,7 @@ async function installLocked(
   } finally {
     await rm(stage, { recursive: true, force: true });
   }
+  return true;
 }
 
 /**
@@ -239,14 +239,13 @@ async function installLocked(
  * mismatch or an unsafe artifact (1), a manifest mismatch (78), or an unsupported platform or
  * held lock (69).
  */
-export async function installTool(options: InstallOptions): Promise<void> {
+export async function installTool(options: InstallOptions): Promise<boolean> {
   assertToolName(options.name);
-  const entry = await findEntry(options.index, options.name);
-  const artifact = artifactPath(options.index, entry);
+  const entry = options.entry ?? (await findEntry(options.index, options.name));
   const paths = tbxPaths(options.home, envOf(options));
-  await withLock(
+  return withLock(
     paths.lockFile,
-    () => installLocked(entry, artifact, paths, options),
+    () => installLocked(entry, paths, options),
     options.lockTimeoutMs,
   );
 }
@@ -316,9 +315,19 @@ export async function installedToolFor(paths: TbxPaths, word: string): Promise<s
   return null;
 }
 
-/** Default `--index`: `dist/release/index.json` under the repo root. */
-export function defaultIndex(root: string): string {
-  return path.join(root, DEFAULT_RELEASE_DIR, 'index.json');
+/** Release index `tbx install` reads when neither `--index` nor `TBX_INDEX` is given. */
+export const DEFAULT_INDEX_URL =
+  'https://raw.githubusercontent.com/joeblackwaslike/toolbox/release-index/index.json';
+
+/** Default `--index`: `TBX_INDEX` from `env`, else the published release index. */
+export function defaultIndex(env: Env): string {
+  const override = env.TBX_INDEX;
+  return override === undefined || override === '' ? DEFAULT_INDEX_URL : override;
+}
+
+/** Turns an `--index` value into a URL, or an absolute path for a local file. */
+export function resolveIndex(source: string): string {
+  return /^(https?|file):/i.test(source) ? source : path.resolve(source);
 }
 
 /** Options for `install`; `lockTimeoutMs` is for library callers and tests, not a CLI flag. */
@@ -397,13 +406,14 @@ function bulkFailure(failed: { name: string; error: unknown }[]): ToolError {
   return new ToolError(`install failed: ${failed.map((tool) => tool.name).join(', ')}`, code);
 }
 
+/** Every tool name in the index, once each, in first-seen (newest-first) order. */
 async function indexNames(index: string): Promise<string[]> {
-  const entries = await readIndex(index);
-  return entries.map((entry) => entry.name);
+  const entries = await fetchIndex(index);
+  return [...new Set(entries.map((entry) => entry.name))];
 }
 
 /**
- * `tbx install <name|all> [--index <path>]`: installs one tool, or every tool in the index.
+ * `tbx install <name|all> [--index <path|url>]`: installs one tool, or every tool in the index.
  * With `all`, only a tool that does not support this platform is skipped (and reported); any
  * other failure, such as a lock timeout or a missing unit validator under CI, is printed as
  * `<name>: <message>`, the remaining tools are still attempted, and the command then fails with
@@ -415,7 +425,7 @@ export async function install(
   target: string,
   options: InstallCommandOptions,
 ): Promise<void> {
-  const index = path.resolve(options.index ?? defaultIndex(ctx.root));
+  const index = resolveIndex(options.index ?? defaultIndex(ctx.env));
   if (target !== 'all') {
     const version = await installSingle(ctx, target, index, options);
     ctx.out.result(

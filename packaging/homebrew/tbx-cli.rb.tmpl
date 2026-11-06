@@ -1,0 +1,38 @@
+class TbxCli < Formula
+  desc "Installer and runner for the tbx toolbox"
+  homepage "https://github.com/joeblackwaslike/toolbox"
+  version "{{VERSION}}"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/joeblackwaslike/toolbox/releases/download/tbx-cli-v{{VERSION}}/tbx-darwin-arm64"
+      sha256 "{{SHA_TBX_DARWIN_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/joeblackwaslike/toolbox/releases/download/tbx-cli-v{{VERSION}}/tbx-darwin-x64"
+      sha256 "{{SHA_TBX_DARWIN_X64}}"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/joeblackwaslike/toolbox/releases/download/tbx-cli-v{{VERSION}}/tbx-linux-arm64"
+      sha256 "{{SHA_TBX_LINUX_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/joeblackwaslike/toolbox/releases/download/tbx-cli-v{{VERSION}}/tbx-linux-x64"
+      sha256 "{{SHA_TBX_LINUX_X64}}"
+    end
+  end
+
+  def install
+    os = OS.mac? ? "darwin" : "linux"
+    arch = Hardware::CPU.arm? ? "arm64" : "x64"
+    bin.install "tbx-#{os}-#{arch}" => "tbx"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/tbx --version")
+  end
+end

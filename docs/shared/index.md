@@ -16,7 +16,7 @@ Every tool reuses these modules. Check here before writing a helper.
 - [ts/gen/readme](ts/gen/readme.md) (ReadmeOptions, renderCatalog, renderToolReadme)
 - [ts/gen/shared-docs](ts/gen/shared-docs.md) (DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs)
 - [ts/gen/unit](ts/gen/unit.md) (UnitContext, UnitKind, UnitValidation, VALIDATOR_TIMEOUT_MS, renderSystemdTimer, renderUnit, unitLabel, validateUnit)
-- [ts/manifest](ts/manifest.md) (ArgSpec, BUILTIN_OPTIONS, INTEGER_PATTERN, INTEGER_RULE, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseIntegerText, parseManifest)
+- [ts/manifest](ts/manifest.md) (ArgSpec, BUILTIN_OPTIONS, INTEGER_PATTERN, INTEGER_RULE, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, SEMVER_PATTERN, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseIntegerText, parseManifest)
 - [ts/output](ts/output.md) (Output, OutputStreams, PROCESS_STREAMS, createOutput)
 - [ts/paths](ts/paths.md) (EXECUTABLE_MODE, PRIVATE_DIR_MODE, PathBinary, PathEnv, READABLE_MODE, binariesOnPath, findOnPath, isWithin, tbxBinDir, xdgBaseDir)
 - [ts/pty](ts/pty.md) (PtyOptions, PtyResult, runInPty)

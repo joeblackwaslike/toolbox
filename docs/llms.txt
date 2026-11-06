@@ -26,7 +26,7 @@
 - [ts/gen/shared-docs](shared/ts/gen/shared-docs.md): DOC_EXTRACT_TIMEOUT_MS, SharedModuleDoc, SharedSymbol, extractSharedDocs, missingSharedDocs, renderSharedDocs
 - [ts/gen/unit](shared/ts/gen/unit.md): UnitContext, UnitKind, UnitValidation, VALIDATOR_TIMEOUT_MS, renderSystemdTimer, renderUnit, unitLabel, validateUnit
 - [sh/lib](shared/sh/lib.md): tbx_die, tbx_error, tbx_info, tbx_result, tbx_result_json
-- [ts/manifest](shared/ts/manifest.md): ArgSpec, BUILTIN_OPTIONS, INTEGER_PATTERN, INTEGER_RULE, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseIntegerText, parseManifest
+- [ts/manifest](shared/ts/manifest.md): ArgSpec, BUILTIN_OPTIONS, INTEGER_PATTERN, INTEGER_RULE, ManifestError, NAME_PATTERN, OptSpec, PathCollision, RESERVED_COMMANDS, SEMVER_PATTERN, ToolManifest, UnitSpec, assertNoCollisions, describePathCollision, findPathCollisions, loadManifest, parseIntegerText, parseManifest
 - [py/output](shared/py/output.md): Output
 - [ts/output](shared/ts/output.md): Output, OutputStreams, PROCESS_STREAMS, createOutput
 - [ts/paths](shared/ts/paths.md): EXECUTABLE_MODE, PRIVATE_DIR_MODE, PathBinary, PathEnv, READABLE_MODE, binariesOnPath, findOnPath, isWithin, tbxBinDir, xdgBaseDir

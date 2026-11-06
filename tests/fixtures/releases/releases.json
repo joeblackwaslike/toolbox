@@ -1,0 +1,110 @@
+[
+  {
+    "url": "https://api.github.com/r",
+    "tag_name": "tbx-cli-v0.3.0",
+    "name": "tbx-cli-v0.3.0",
+    "assets": [
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-darwin-arm64",
+        "browser_download_url": "file://@FIXTURES@/v0.3.0/tbx-darwin-arm64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-darwin-x64",
+        "browser_download_url": "file://@FIXTURES@/v0.3.0/tbx-darwin-x64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-linux-arm64",
+        "browser_download_url": "file://@FIXTURES@/v0.3.0/tbx-linux-arm64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-linux-x64",
+        "browser_download_url": "file://@FIXTURES@/v0.3.0/tbx-linux-x64"
+      }
+    ]
+  },
+  {
+    "url": "https://api.github.com/r",
+    "tag_name": "transcribe-v1.0.0",
+    "name": "transcribe-v1.0.0",
+    "assets": [
+      {
+        "url": "https://api.github.com/x",
+        "name": "transcribe.tgz",
+        "browser_download_url": "file://@FIXTURES@/other/transcribe.tgz"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "checksums.txt",
+        "browser_download_url": "file://@FIXTURES@/other/checksums.txt"
+      }
+    ]
+  },
+  {
+    "url": "https://api.github.com/r",
+    "tag_name": "tbx-cli-v0.2.0",
+    "name": "tbx-cli-v0.2.0",
+    "assets": [
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-darwin-arm64",
+        "browser_download_url": "file://@FIXTURES@/v0.2.0/tbx-darwin-arm64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-darwin-x64",
+        "browser_download_url": "file://@FIXTURES@/v0.2.0/tbx-darwin-x64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-linux-arm64",
+        "browser_download_url": "file://@FIXTURES@/v0.2.0/tbx-linux-arm64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-linux-x64",
+        "browser_download_url": "file://@FIXTURES@/v0.2.0/tbx-linux-x64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "checksums.txt",
+        "browser_download_url": "file://@FIXTURES@/v0.2.0/checksums.txt"
+      }
+    ]
+  },
+  {
+    "url": "https://api.github.com/r",
+    "tag_name": "tbx-cli-v0.1.0",
+    "name": "tbx-cli-v0.1.0",
+    "assets": [
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-darwin-arm64",
+        "browser_download_url": "file://@FIXTURES@/v0.1.0/tbx-darwin-arm64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-darwin-x64",
+        "browser_download_url": "file://@FIXTURES@/v0.1.0/tbx-darwin-x64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-linux-arm64",
+        "browser_download_url": "file://@FIXTURES@/v0.1.0/tbx-linux-arm64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "tbx-linux-x64",
+        "browser_download_url": "file://@FIXTURES@/v0.1.0/tbx-linux-x64"
+      },
+      {
+        "url": "https://api.github.com/x",
+        "name": "checksums.txt",
+        "browser_download_url": "file://@FIXTURES@/v0.1.0/checksums.txt"
+      }
+    ]
+  }
+]
