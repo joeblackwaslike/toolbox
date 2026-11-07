@@ -435,7 +435,11 @@ describe('tbx build, install and uninstall', () => {
     expect(built.index).toBe(join(root, 'dist/release/index.json'));
     expect(built.built.map((tool) => tool.name)).toEqual(['c-sh']);
     const vars = { HOME: await mkdtemp(join(tmpdir(), 'tbx-home-')) };
-    const install = await runTbx(['install', 'all', '--json'], { root, path: '', vars });
+    const install = await runTbx(['install', 'all', '--json', '--index', built.index], {
+      root,
+      path: '',
+      vars,
+    });
     expect(install).toMatchObject({ code: 0, stderr: '' });
     expect(JSON.parse(install.stdout)).toEqual({ installed: [{ name: 'c-sh', version: '0.1.0' }] });
     const removed = await runTbx(['uninstall', 'c-sh', '--json'], { root, path: '', vars });
@@ -466,7 +470,14 @@ describe('tbx build, install and uninstall', () => {
   it('install exits 1 pointing at tbx build when no index has been built', async () => {
     const root = await fixtureRoot();
     const vars = { HOME: await mkdtemp(join(tmpdir(), 'tbx-home-')) };
-    const result = await runTbx(['install', 'demo'], { root, path: '', vars });
+    const result = await runTbx(
+      ['install', 'demo', '--index', join(root, 'dist/release/index.json')],
+      {
+        root,
+        path: '',
+        vars,
+      },
+    );
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('run `tbx build` first');
   });

@@ -1,0 +1,564 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: Release tags to rebuild and republish, space or comma separated (for example tbx-cli-v0.1.0)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  stamp:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      CI: "1"
+      HUSKY: "0"
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Set up pnpm (version from packageManager)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node (version from .nvmrc)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Set up Bun (version from .bun-version)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Commit and push changed shared stamps, one commit per component
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          changed=$(bun tbx/src/index.ts stamp --write)
+          for component in $changed; do
+            case $component in
+              tbx-cli) file=tbx/.shared-stamp ;;
+              *) file="tools/${component}/.shared-stamp" ;;
+            esac
+            git add -- "$file"
+            git commit --quiet --message "fix(${component}): bundle updated shared" -- "$file"
+          done
+          [ -n "$changed" ] || exit 0
+          for retry in 0 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            [ "$retry" -lt 3 ] || break
+            git pull --rebase origin main
+          done
+          echo "push to main still rejected after 3 retries" >&2
+          exit 1
+
+  release-please:
+    needs: stamp
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      json: ${{ toJSON(steps.release.outputs) }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
+
+  # Skipped ancestors (stamp and release-please on a dispatch) skip every later job unless its
+  # condition opts out with !cancelled(), so each job below checks its needs explicitly.
+  resolve:
+    needs: release-please
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release-please.result == 'success') }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      tools: ${{ steps.resolve.outputs.tools }}
+      cli: ${{ steps.resolve.outputs.cli }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the release matrix
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PLEASE_OUTPUTS: ${{ needs.release-please.outputs.json }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            matrix=$(scripts/resolve-releases.sh tags "$TAGS")
+          else
+            matrix=$(scripts/resolve-releases.sh outputs "$RELEASE_PLEASE_OUTPUTS")
+          fi
+          echo "$matrix" | jq .
+          tools=$(jq -c 'map(select(.kind == "tool"))' <<<"$matrix")
+          cli=$(jq -c 'map(select(.kind == "cli"))' <<<"$matrix")
+          if [ "$(jq length <<<"$cli")" -gt 1 ]; then
+            echo "dispatch at most one tbx-cli tag per run" >&2
+            exit 1
+          fi
+          {
+            echo "matrix=${matrix}"
+            echo "tools=${tools}"
+            echo "cli=$(jq -c '.[0] // empty' <<<"$cli")"
+          } >>"$GITHUB_OUTPUT"
+
+  tool-release:
+    name: tool-release (${{ matrix.tag }})
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.tools != '[]' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.tools) }}
+    env:
+      CI: "1"
+      HUSKY: "0"
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.sha }}
+          persist-credentials: false
+
+      - name: Set up pnpm (version from packageManager)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node (version from .nvmrc)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Set up Bun (version from .bun-version)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Set up uv (Python tools vendor their dependencies with it)
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the tool tarball and its checksum
+        id: build
+        env:
+          COMPONENT: ${{ matrix.component }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          pnpm --silent tbx build "$COMPONENT" --out dist/release
+          file="${COMPONENT}-${VERSION}.tar.gz"
+          if [ ! -f "dist/release/${file}" ]; then
+            echo "tbx build did not produce ${file}; tool.toml at this commit does not say ${VERSION}" >&2
+            exit 1
+          fi
+          (cd dist/release && sha256sum "$file" >"${file}.sha256")
+          echo "file=dist/release/${file}" >>"$GITHUB_OUTPUT"
+
+      - name: Upload the tarball and checksum to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ matrix.tag }}
+          FILE: ${{ steps.build.outputs.file }}
+        run: scripts/upload-release-asset.sh "$TAG" "$FILE" "${FILE}.sha256"
+
+      - name: Keep the repo-wide latest label off the tool release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ matrix.tag }}
+        run: scripts/release-not-latest.sh "$TAG"
+
+  index:
+    needs: [resolve, tool-release]
+    # A failed tool-release leg must not block the index for the tools that did upload.
+    if: ${{ !cancelled() && (needs.tool-release.result == 'success' || needs.tool-release.result == 'failure') }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Add each released tool to index.json on the release-index branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TOOLS: ${{ needs.resolve.outputs.tools }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: scripts/index-released-tools.sh "$TOOLS"
+
+  # A tbx-cli release with checksums.txt is complete: cli-build reports `complete`, the build, sign,
+  # smoke and upload work is skipped, and the publish jobs read checksums.txt from the release.
+  cli-build:
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.cli != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      state: ${{ steps.state.outputs.state }}
+    env:
+      CI: "1"
+      HUSKY: "0"
+      TAG: ${{ fromJSON(needs.resolve.outputs.cli).tag }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(needs.resolve.outputs.cli).sha }}
+          persist-credentials: false
+
+      - name: Check whether the release already has checksums.txt
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          state=$(scripts/cli-release-state.sh "$TAG")
+          echo "$TAG is $state"
+          echo "state=${state}" >>"$GITHUB_OUTPUT"
+
+      - name: Set up pnpm (version from packageManager)
+        if: steps.state.outputs.state == 'incomplete'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node (version from .nvmrc)
+        if: steps.state.outputs.state == 'incomplete'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Set up Bun (version from .bun-version)
+        if: steps.state.outputs.state == 'incomplete'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install JavaScript dependencies
+        if: steps.state.outputs.state == 'incomplete'
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile the four tbx binaries
+        if: steps.state.outputs.state == 'incomplete'
+        run: scripts/compile-tbx.sh dist/cli
+
+      - name: Keep the unsigned binaries for the signing job
+        if: steps.state.outputs.state == 'incomplete'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-build
+          path: dist/cli/tbx-*
+          if-no-files-found: error
+          retention-days: 3
+
+  sign-macos:
+    needs: [resolve, cli-build]
+    if: ${{ !cancelled() && needs.cli-build.result == 'success' && needs.cli-build.outputs.state == 'incomplete' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(needs.resolve.outputs.cli).sha }}
+          persist-credentials: false
+
+      - name: Download the unsigned binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cli-build
+          path: dist/cli
+
+      - name: Sign and notarize the darwin binaries
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: scripts/sign-macos.sh dist/cli/tbx-darwin-arm64 dist/cli/tbx-darwin-x64
+
+      # The linux binaries pass through unchanged, so cli-signed holds exactly the bytes that ship.
+      - name: Keep the final binaries, signed darwin and unchanged linux
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-signed
+          path: dist/cli/tbx-*
+          if-no-files-found: error
+          retention-days: 3
+
+  smoke:
+    name: smoke (${{ matrix.platform }})
+    needs: [resolve, cli-build, sign-macos]
+    if: ${{ !cancelled() && needs.cli-build.result == 'success' && needs.sign-macos.result == 'success' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, platform: darwin-arm64 }
+          - { runner: macos-15-intel, platform: darwin-x64 }
+          - { runner: ubuntu-24.04, platform: linux-x64 }
+          - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
+    steps:
+      - name: Download the final binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cli-signed
+          path: dist/cli
+
+      - name: Run tbx --version and tbx list in an empty home
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ fromJSON(needs.resolve.outputs.cli).version }}
+        run: |
+          bin="${PWD}/dist/cli/tbx-${PLATFORM}"
+          chmod +x "$bin"
+          home=$(mktemp -d)
+          cd "$home"
+          isolated=(env "HOME=${home}" "XDG_CONFIG_HOME=${home}/.config" "XDG_DATA_HOME=${home}/.local/share"
+            "XDG_STATE_HOME=${home}/.local/state" "XDG_CACHE_HOME=${home}/.cache" "TBX_BIN_DIR=${home}/bin")
+          actual=$("${isolated[@]}" "$bin" --version)
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::tbx-${PLATFORM} --version printed '${actual}', expected '${VERSION}'"
+            exit 1
+          fi
+          "${isolated[@]}" "$bin" list
+
+  cli-upload:
+    needs: [resolve, cli-build, smoke]
+    if: >-
+      ${{ !cancelled() && needs.cli-build.result == 'success'
+      && (needs.smoke.result == 'success' || needs.cli-build.outputs.state == 'complete') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ fromJSON(needs.resolve.outputs.cli).tag }}
+      VERSION: ${{ fromJSON(needs.resolve.outputs.cli).version }}
+    steps:
+      - name: Report a release that is already complete
+        if: needs.cli-build.outputs.state == 'complete'
+        run: echo "$TAG already has checksums.txt; nothing to build or upload"
+
+      - name: Check out the release commit
+        if: needs.cli-build.outputs.state == 'incomplete'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(needs.resolve.outputs.cli).sha }}
+          persist-credentials: false
+
+      - name: Download the final binaries
+        if: needs.cli-build.outputs.state == 'incomplete'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cli-signed
+          path: dist/cli
+
+      - name: Install nfpm (pinned v2.48.0, sha256-verified)
+        if: needs.cli-build.outputs.state == 'incomplete'
+        env:
+          NFPM_VERSION: 2.48.0
+          NFPM_SHA256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+        run: |
+          dir="${RUNNER_TEMP}/nfpm"
+          mkdir -p "$dir"
+          curl -fsSLo "${dir}/nfpm.tar.gz" \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          echo "${NFPM_SHA256}  ${dir}/nfpm.tar.gz" | sha256sum -c -
+          tar -xzf "${dir}/nfpm.tar.gz" -C "$dir" nfpm
+          echo "$dir" >>"$GITHUB_PATH"
+
+      - name: Write checksums.txt and build the .deb and .rpm packages
+        if: needs.cli-build.outputs.state == 'incomplete'
+        run: |
+          chmod +x dist/cli/tbx-*
+          scripts/cli-checksums.sh dist/cli >dist/checksums.txt
+          cat dist/checksums.txt
+          scripts/render-packaging.sh "$VERSION" dist/checksums.txt dist/packaging
+          cp dist/cli/tbx-linux-* dist/packaging/
+          mkdir -p dist/pkg
+          cd dist/packaging
+          for arch in amd64 arm64; do
+            for packager in deb rpm; do
+              nfpm package --config "nfpm-${arch}.yaml" --packager "$packager" --target ../pkg/
+            done
+          done
+          ls -l ../pkg
+
+      - name: Upload the binaries and packages, then checksums.txt last
+        if: needs.cli-build.outputs.state == 'incomplete'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          scripts/cli-release-state.sh --clear "$TAG"
+          scripts/upload-release-asset.sh "$TAG" dist/cli/tbx-darwin-arm64 dist/cli/tbx-darwin-x64 \
+            dist/cli/tbx-linux-arm64 dist/cli/tbx-linux-x64 dist/pkg/*.deb dist/pkg/*.rpm dist/checksums.txt
+
+  publish-npm:
+    needs: [resolve, cli-upload]
+    if: ${{ !cancelled() && needs.cli-upload.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ fromJSON(needs.resolve.outputs.cli).tag }}
+      VERSION: ${{ fromJSON(needs.resolve.outputs.cli).version }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(needs.resolve.outputs.cli).sha }}
+          persist-credentials: false
+
+      - name: Set up Node (version from .nvmrc)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Render the packages from the release's checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download "$TAG" --pattern checksums.txt --dir dist/release
+          scripts/render-packaging.sh "$VERSION" dist/release/checksums.txt dist/packaging
+
+      - name: Publish tbx-cli to npm unless this version is already there
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          published=$(npm view "tbx-cli@${VERSION}" version 2>/dev/null || true)
+          if [ "$published" = "$VERSION" ]; then
+            echo "tbx-cli@${VERSION} is already on npm"
+            exit 0
+          fi
+          cd dist/packaging/npm
+          npm publish --access public --provenance
+
+  publish-pypi:
+    needs: [resolve, cli-upload]
+    if: ${{ !cancelled() && needs.cli-upload.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ fromJSON(needs.resolve.outputs.cli).tag }}
+      VERSION: ${{ fromJSON(needs.resolve.outputs.cli).version }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(needs.resolve.outputs.cli).sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Render the packages from the release's checksums.txt and build the wheel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download "$TAG" --pattern checksums.txt --dir dist/release
+          scripts/render-packaging.sh "$VERSION" dist/release/checksums.txt dist/packaging
+          cd dist/packaging/pypi
+          uv build
+
+      - name: Publish tbx-cli to PyPI, skipping files already uploaded
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist/packaging/pypi/dist/
+          skip-existing: true
+
+  publish-brew:
+    needs: [resolve, publish-npm, publish-pypi]
+    if: ${{ !cancelled() && needs.publish-npm.result == 'success' && needs.publish-pypi.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ fromJSON(needs.resolve.outputs.cli).tag }}
+      VERSION: ${{ fromJSON(needs.resolve.outputs.cli).version }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(needs.resolve.outputs.cli).sha }}
+          persist-credentials: false
+
+      - name: Render the formula from the release's checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download "$TAG" --pattern checksums.txt --dir dist/release
+          scripts/render-packaging.sh "$VERSION" dist/release/checksums.txt dist/packaging
+
+      - name: Push Formula/tbx-cli.rb to joeblackwaslike/homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: scripts/publish-brew.sh dist/packaging/homebrew/tbx-cli.rb "$VERSION"

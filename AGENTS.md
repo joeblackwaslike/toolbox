@@ -15,4 +15,4 @@ Remove this section once the OpenAI account has credit again.
 
 ## Publishing
 
-`tbx-cli` is published to npm and PyPI from GitHub Actions only. Never publish from a laptop. The repo is going public, so keep tokens out of the tree.
+`release.yml` is the only path that publishes `tbx-cli` (npm and PyPI) and the tool releases. Never publish from a laptop. release-please opens the release PRs, and a person or agent merges them. The repo is public, so keep tokens out of the tree.

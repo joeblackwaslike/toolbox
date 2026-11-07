@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { sha256, unpackTar } from '../../tbx/src/archive.ts';
@@ -17,6 +18,7 @@ const TOOLS = [
 ] as const;
 
 const BUILD_TIMEOUT_MS = 180_000;
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 let root: string;
 let out: string;
@@ -53,6 +55,26 @@ describe('buildTool', () => {
     async (name) => {
       const again = await buildTool(root, name, await mkdtemp(join(tmpdir(), 'tbx-out-')));
       expect(again.sha256).toBe(built.get(name)?.sha256);
+    },
+    BUILD_TIMEOUT_MS,
+  );
+
+  it(
+    'two builds of the real transcribe tool into separate directories are byte-identical',
+    async () => {
+      const first = await buildTool(
+        REPO_ROOT,
+        'transcribe',
+        await mkdtemp(join(tmpdir(), 'tbx-a-')),
+      );
+      const second = await buildTool(
+        REPO_ROOT,
+        'transcribe',
+        await mkdtemp(join(tmpdir(), 'tbx-b-')),
+      );
+      expect(first.artifact).not.toBe(second.artifact);
+      expect((await readFile(first.artifact)).equals(await readFile(second.artifact))).toBe(true);
+      expect(first.sha256).toBe(second.sha256);
     },
     BUILD_TIMEOUT_MS,
   );

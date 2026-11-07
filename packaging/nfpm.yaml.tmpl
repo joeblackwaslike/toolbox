@@ -1,0 +1,14 @@
+name: tbx-cli
+arch: {{ARCH}}
+platform: linux
+version: {{VERSION}}
+section: utils
+maintainer: Joe Black <me@joeblack.nyc>
+description: Installer and runner for the tbx toolbox.
+homepage: https://github.com/joeblackwaslike/toolbox
+license: MIT
+contents:
+  - src: ./tbx-linux-{{ASSET_ARCH}}
+    dst: /usr/bin/tbx
+    file_info:
+      mode: 0755

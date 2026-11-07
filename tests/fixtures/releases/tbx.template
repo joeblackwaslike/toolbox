@@ -1,0 +1,7 @@
+#!/bin/sh
+if [ "${1:-}" = install ]; then
+  shift
+  echo "tbx install $*" >>"${TBX_TEST_LOG:?}"
+  exit "${TBX_TEST_EXIT:-0}"
+fi
+echo "@NAME@ @VERSION@"

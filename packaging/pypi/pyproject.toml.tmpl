@@ -1,13 +1,15 @@
 [project]
 name = "tbx-cli"
-version = "0.0.1"
-description = "Placeholder for the tbx CLI toolbox. The real release follows."
-readme = "README.md"
+version = "{{VERSION}}"
+description = "Launcher for the tbx CLI: downloads and runs the checksum-verified release binary."
 license = "MIT"
 requires-python = ">=3.10"
 
 [project.urls]
 Repository = "https://github.com/joeblackwaslike/toolbox"
+
+[project.scripts]
+tbx = "tbx_cli:main"
 
 [build-system]
 requires = ["hatchling==1.27.0"]
