@@ -1,0 +1,10 @@
+{
+  "tools": [
+    {
+      "name": "transcribe",
+      "version": "0.1.0",
+      "artifact": "https://github.com/joeblackwaslike/toolbox/releases/download/transcribe-v0.1.0/transcribe-0.1.0.tar.gz",
+      "sha256": "2c890115db3942cf52d4191ad15cb7346aa890dfbb5174ca5af1dca0cb79435a"
+    }
+  ]
+}
