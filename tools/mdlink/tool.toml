@@ -1,0 +1,20 @@
+name = "mdlink"
+summary = "Print a markdown link for a file, relative to the workspace root"
+language = "sh"
+version = "0.1.0"
+platforms = [ "macos", "linux" ]
+
+[[args]]
+name = "path"
+summary = "File or directory path, optionally with :LINE or :LINE-END"
+required = true
+
+[[args]]
+name = "text"
+summary = "Link text (default: the workspace-relative path)"
+required = false
+
+[[options]]
+long = "root"
+summary = "Workspace root (default: the main checkout of the current repo)"
+type = "string"

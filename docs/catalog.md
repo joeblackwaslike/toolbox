@@ -4,4 +4,5 @@
 
 | Tool | Alias | Language | Version | Summary |
 | --- | --- | --- | --- | --- |
+| `mdlink` |  | sh | 0.1.0 | Print a markdown link for a file, relative to the workspace root |
 | `transcribe` |  | sh | 0.1.0 | Turn a video URL into a clean markdown transcript |
