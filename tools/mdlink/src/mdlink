@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# @file mdlink
+# @brief Print a markdown link for a file, relative to the workspace root.
+# @description
+#   A build prepends shared/sh/lib.sh and the generated parser. Run from the checkout, this
+#   file loads both itself.
+#
+#   Root: --root, else $MDLINK_ROOT, else the main checkout of the current repo, so a path
+#   inside a worktree comes out as .worktrees/<name>/... Paths outside the root stay absolute.
+#   A missing file warns on stderr and the link is still printed.
+
+if ! declare -F _tbx_parse >/dev/null; then
+  root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+  # shellcheck source=/dev/null
+  source "$root/shared/sh/lib.sh"
+  prelude=$(bun "$root/shared/sh/print-parser.ts" "$root/tools/mdlink/tool.toml") || exit 1
+  eval "$prelude"
+fi
+
+set -euo pipefail
+
+# shellcheck disable=SC2154
+arg="$TBX_ARG_PATH"
+# shellcheck disable=SC2154
+text="$TBX_ARG_TEXT"
+anchor=""
+suffix=""
+if [[ ! -e "$arg" && "$arg" =~ ^(.+):([0-9]+)(-([0-9]+))?$ ]]; then
+  arg="${BASH_REMATCH[1]}"
+  start="${BASH_REMATCH[2]}"
+  end="${BASH_REMATCH[4]:-}"
+  anchor="#L${start}${end:+-L$end}"
+  suffix=":${start}${end:+-$end}"
+fi
+
+# shellcheck disable=SC2154
+workspace="${TBX_OPT_ROOT:-${MDLINK_ROOT:-}}"
+if [[ -z "$workspace" ]]; then
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) ||
+    tbx_die 1 "not in a git repo; pass --root or set MDLINK_ROOT"
+  workspace=$(dirname "$common")
+fi
+
+dir=$(cd "$(dirname "$arg")" 2>/dev/null && pwd -P) ||
+  tbx_die 1 "directory not found: $(dirname "$arg")"
+abs="$dir/$(basename "$arg")"
+[[ -e "$abs" ]] || tbx_error "warning: $abs does not exist"
+
+case "$abs" in
+"$workspace"/*) rel="${abs#"$workspace"/}" ;;
+*) rel="$abs" ;;
+esac
+
+tbx_result "$(printf '[%s](%s%s)' "${text:-$rel$suffix}" "${rel// /%20}" "$anchor")"

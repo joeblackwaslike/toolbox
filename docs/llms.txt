@@ -9,6 +9,7 @@
 
 ## Tools
 
+- [mdlink](../tools/mdlink/README.md): Print a markdown link for a file, relative to the workspace root
 - [transcribe](../tools/transcribe/README.md): Turn a video URL into a clean markdown transcript
 
 ## Shared modules
