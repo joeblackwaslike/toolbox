@@ -5,8 +5,9 @@
 #   A build prepends shared/sh/lib.sh and the generated parser. Run from the checkout, this
 #   file loads both itself.
 #
-#   Root: --root, else $MDLINK_ROOT, else the main checkout of the current repo, so a path
-#   inside a worktree comes out as .worktrees/<name>/... Paths outside the root stay absolute.
+#   Root: --root, else the main checkout of the current repo, so a path inside a worktree
+#   comes out as .worktrees/<name>/... Paths outside the root stay absolute. Characters that
+#   end or alter a markdown destination are percent-encoded in the target, never in the text.
 #   A missing file warns on stderr and the link is still printed.
 
 if ! declare -F _tbx_parse >/dev/null; then
@@ -27,28 +28,46 @@ anchor=""
 suffix=""
 if [[ ! -e "$arg" && "$arg" =~ ^(.+):([0-9]+)(-([0-9]+))?$ ]]; then
   arg="${BASH_REMATCH[1]}"
-  start="${BASH_REMATCH[2]}"
+  start=$((10#${BASH_REMATCH[2]}))
   end="${BASH_REMATCH[4]:-}"
+  ((start >= 1)) || tbx_die 2 "line numbers start at 1: $TBX_ARG_PATH"
+  if [[ -n "$end" ]]; then
+    end=$((10#$end))
+    ((end >= start)) || tbx_die 2 "line range is reversed: $TBX_ARG_PATH"
+  fi
   anchor="#L${start}${end:+-L$end}"
   suffix=":${start}${end:+-$end}"
 fi
 
 # shellcheck disable=SC2154
-workspace="${TBX_OPT_ROOT:-${MDLINK_ROOT:-}}"
+workspace="${TBX_OPT_ROOT:-}"
 if [[ -z "$workspace" ]]; then
   common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) ||
-    tbx_die 1 "not in a git repo; pass --root or set MDLINK_ROOT"
+    tbx_die 1 "not in a git repo; pass --root"
   workspace=$(dirname "$common")
 fi
+workspace=$(cd "$workspace" 2>/dev/null && pwd -P) || tbx_die 1 "root not found: $workspace"
 
-dir=$(cd "$(dirname "$arg")" 2>/dev/null && pwd -P) ||
-  tbx_die 1 "directory not found: $(dirname "$arg")"
-abs="$dir/$(basename "$arg")"
+if [[ -d "$arg" ]]; then
+  abs=$(cd "$arg" && pwd -P)
+else
+  dir=$(cd "$(dirname "$arg")" 2>/dev/null && pwd -P) ||
+    tbx_die 1 "directory not found: $(dirname "$arg")"
+  abs="$dir/$(basename "$arg")"
+fi
 [[ -e "$abs" ]] || tbx_error "warning: $abs does not exist"
 
 case "$abs" in
+"$workspace") rel="." ;;
 "$workspace"/*) rel="${abs#"$workspace"/}" ;;
 *) rel="$abs" ;;
 esac
 
-tbx_result "$(printf '[%s](%s%s)' "${text:-$rel$suffix}" "${rel// /%20}" "$anchor")"
+target="${rel//\%/%25}"
+target="${target// /%20}"
+target="${target//\#/%23}"
+target="${target//\?/%3F}"
+target="${target//\(/%28}"
+target="${target//\)/%29}"
+
+tbx_result "$(printf '[%s](%s%s)' "${text:-$rel$suffix}" "$target" "$anchor")"

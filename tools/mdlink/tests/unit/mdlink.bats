@@ -8,8 +8,11 @@ setup_file() {
   git -C "$REPO" init -q
   git -C "$REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
   git -C "$REPO" worktree add -q "$REPO/.worktrees/feat" -b feat
+  mkdir -p "$REPO/app/(g)/[id]"
   touch "$REPO/docs/a.md" "$REPO/docs/with space.md" "$REPO/.worktrees/feat/docs.md" \
-    "$BATS_FILE_TMPDIR/elsewhere/x.md"
+    "$BATS_FILE_TMPDIR/elsewhere/x.md" "$REPO/app/(g)/[id]/p.tsx" "$REPO/docs/a#b.md" \
+    "$REPO/docs/50%.md" "$REPO/docs/q?.md"
+  ln -s "$REPO" "$BATS_FILE_TMPDIR/repo-link"
   REPO=$(cd "$REPO" && pwd -P)
   ELSEWHERE=$(cd "$BATS_FILE_TMPDIR/elsewhere" && pwd -P)
   export REPO ELSEWHERE
@@ -100,4 +103,63 @@ setup() {
 @test "no path is a usage error" {
   run --separate-stderr bash "$TOOL"
   [ "$status" -eq 2 ]
+}
+
+@test "characters that break a markdown destination are percent-encoded in the target only" {
+  cd "$REPO"
+  run bash "$TOOL" "app/(g)/[id]/p.tsx"
+  [ "$output" = '[app/(g)/[id]/p.tsx](app/%28g%29/[id]/p.tsx)' ]
+  run bash "$TOOL" "docs/a#b.md"
+  [ "$output" = '[docs/a#b.md](docs/a%23b.md)' ]
+  run bash "$TOOL" "docs/50%.md"
+  [ "$output" = '[docs/50%.md](docs/50%25.md)' ]
+  run bash "$TOOL" "docs/q?.md"
+  [ "$output" = '[docs/q?.md](docs/q%3F.md)' ]
+}
+
+@test "--root with a trailing slash still relativizes" {
+  cd "$REPO"
+  run bash "$TOOL" --root "$REPO/" docs/a.md
+  [ "$output" = '[docs/a.md](docs/a.md)' ]
+}
+
+@test "--root through a symlink still relativizes" {
+  cd "$REPO"
+  run bash "$TOOL" --root "$BATS_FILE_TMPDIR/repo-link" docs/a.md
+  [ "$output" = '[docs/a.md](docs/a.md)' ]
+}
+
+@test "a --root that does not exist fails with exit 1" {
+  cd "$REPO"
+  run --separate-stderr bash "$TOOL" --root "$REPO/nope" docs/a.md
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test ".. and . segments are normalized" {
+  cd "$REPO/docs"
+  run bash "$TOOL" ..
+  [ "$output" = '[.](.)' ]
+  run bash "$TOOL" ../docs/.
+  [ "$output" = '[docs](docs)' ]
+}
+
+@test "the workspace root itself gets a relative link" {
+  cd "$REPO"
+  run bash "$TOOL" "$REPO"
+  [ "$output" = '[.](.)' ]
+}
+
+@test "a line number below 1 is a usage error" {
+  cd "$REPO"
+  run --separate-stderr bash "$TOOL" docs/a.md:0
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "a reversed line range is a usage error" {
+  cd "$REPO"
+  run --separate-stderr bash "$TOOL" docs/a.md:5-3
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
 }

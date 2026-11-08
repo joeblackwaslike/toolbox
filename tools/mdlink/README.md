@@ -28,6 +28,10 @@ mdlink [options] <path> [text]
 | `--json` | bool |  | Print machine-readable JSON to stdout |
 | `-h, --help` | bool |  | Show help, as JSON with --json |
 
+## Guide
+
+[docs/guide.md](docs/guide.md)
+
 ## Completions
 
 - zsh: `completions/mdlink.zsh`
