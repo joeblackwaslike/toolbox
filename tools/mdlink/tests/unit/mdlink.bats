@@ -134,6 +134,7 @@ setup() {
   run --separate-stderr bash "$TOOL" --root "$REPO/nope" docs/a.md
   [ "$status" -eq 1 ]
   [ -z "$output" ]
+  [[ "$stderr" == "root not found: $REPO/nope" ]]
 }
 
 @test ".. and . segments are normalized" {

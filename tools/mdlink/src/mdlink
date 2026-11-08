@@ -46,7 +46,8 @@ if [[ -z "$workspace" ]]; then
     tbx_die 1 "not in a git repo; pass --root"
   workspace=$(dirname "$common")
 fi
-workspace=$(cd "$workspace" 2>/dev/null && pwd -P) || tbx_die 1 "root not found: $workspace"
+requested_root="$workspace"
+workspace=$(cd "$workspace" 2>/dev/null && pwd -P) || tbx_die 1 "root not found: $requested_root"
 
 if [[ -d "$arg" ]]; then
   abs=$(cd "$arg" && pwd -P)
