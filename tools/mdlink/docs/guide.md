@@ -31,12 +31,12 @@ Stdout holds only the link, so `mdlink <path> | pbcopy` works.
 
 ## Requirements
 
-`git` on PATH, unless you pass `--root`. `--json` also needs `jq`.
+`git` 2.31 or newer on PATH (for `rev-parse --path-format`), unless you pass `--root`. `--json` also needs `jq`.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | The link was printed. |
-| 1 | Not inside a git repo and no `--root`, the root does not exist, or the path's directory does not exist. |
-| 2 | Usage error: no path, an unknown flag, a line number below 1, or a line range that ends before it starts. |
+| 1 | Not inside a git repo and no `--root`, the root does not exist, or the path's directory does not exist or cannot be entered. |
+| 2 | Usage error: no path, an unknown flag, a line number below 1 or longer than 15 digits, or a line range that ends before it starts. |

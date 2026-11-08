@@ -12,6 +12,8 @@ setup_file() {
   touch "$REPO/docs/a.md" "$REPO/docs/with space.md" "$REPO/.worktrees/feat/docs.md" \
     "$BATS_FILE_TMPDIR/elsewhere/x.md" "$REPO/app/(g)/[id]/p.tsx" "$REPO/docs/a#b.md" \
     "$REPO/docs/50%.md" "$REPO/docs/q?.md"
+  mkdir -p "$REPO/locked"
+  chmod 000 "$REPO/locked"
   ln -s "$REPO" "$BATS_FILE_TMPDIR/repo-link"
   REPO=$(cd "$REPO" && pwd -P)
   ELSEWHERE=$(cd "$BATS_FILE_TMPDIR/elsewhere" && pwd -P)
@@ -163,4 +165,25 @@ setup() {
   run --separate-stderr bash "$TOOL" docs/a.md:5-3
   [ "$status" -eq 2 ]
   [ -z "$output" ]
+}
+
+teardown_file() {
+  chmod 755 "$REPO/locked" 2>/dev/null || true
+}
+
+@test "a directory that cannot be entered fails with a clear message" {
+  [ "$(id -u)" -ne 0 ] || skip "root can enter any directory"
+  cd "$REPO"
+  run --separate-stderr bash "$TOOL" locked
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == "cannot enter directory: locked" ]]
+}
+
+@test "a line number too large for shell arithmetic is a usage error" {
+  cd "$REPO"
+  run --separate-stderr bash "$TOOL" docs/a.md:99999999999999999999
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+  [[ "$stderr" == "line number too large: docs/a.md:99999999999999999999" ]]
 }

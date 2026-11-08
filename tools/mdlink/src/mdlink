@@ -28,8 +28,10 @@ anchor=""
 suffix=""
 if [[ ! -e "$arg" && "$arg" =~ ^(.+):([0-9]+)(-([0-9]+))?$ ]]; then
   arg="${BASH_REMATCH[1]}"
-  start=$((10#${BASH_REMATCH[2]}))
+  digits="${BASH_REMATCH[2]}"
   end="${BASH_REMATCH[4]:-}"
+  ((${#digits} <= 15 && ${#end} <= 15)) || tbx_die 2 "line number too large: $TBX_ARG_PATH"
+  start=$((10#$digits))
   ((start >= 1)) || tbx_die 2 "line numbers start at 1: $TBX_ARG_PATH"
   if [[ -n "$end" ]]; then
     end=$((10#$end))
@@ -50,7 +52,7 @@ requested_root="$workspace"
 workspace=$(cd "$workspace" 2>/dev/null && pwd -P) || tbx_die 1 "root not found: $requested_root"
 
 if [[ -d "$arg" ]]; then
-  abs=$(cd "$arg" && pwd -P)
+  abs=$(cd "$arg" 2>/dev/null && pwd -P) || tbx_die 1 "cannot enter directory: $arg"
 else
   dir=$(cd "$(dirname "$arg")" 2>/dev/null && pwd -P) ||
     tbx_die 1 "directory not found: $(dirname "$arg")"
